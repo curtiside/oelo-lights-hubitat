@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.6
+ * @version 0.6.7
  */
 
 metadata {
@@ -101,7 +101,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.6"
+    def driverVersion = "0.6.7"
     // Always update version if it's different (handles code updates without preference save)
     if (state.driverVersion != driverVersion) {
         state.driverVersion = driverVersion
@@ -691,23 +691,41 @@ def poll() {
             timeout: (commandTimeout ?: 10) * 1000
         ]) { response ->
             if (response.status == 200) {
-                def zones = response.data
+                // Try multiple ways to get the JSON data
+                def zones = response.json ?: response.data
                 
-                // Try parsing as JSON string first (most common case in Hubitat)
+                // If zones is not a List, try to parse it
                 if (!(zones instanceof List)) {
+                    // Try parsing as JSON string
                     def zonesStr = zones?.toString() ?: ""
                     if (zonesStr.trim().startsWith("[")) {
                         try {
                             zones = new groovy.json.JsonSlurper().parseText(zonesStr)
-                            logDebug "Parsed JSON string to List"
+                            logDebug "Successfully parsed JSON string to List"
                         } catch (Exception e) {
-                            log.error "Failed to parse JSON response: ${e.message}"
+                            log.error "Failed to parse JSON string: ${e.message}"
+                            // Try one more time with the raw response
+                            try {
+                                def rawData = response.data?.toString() ?: ""
+                                zones = new groovy.json.JsonSlurper().parseText(rawData)
+                                logDebug "Successfully parsed raw response data"
+                            } catch (Exception e2) {
+                                log.error "Failed to parse raw response: ${e2.message}"
+                                return
+                            }
+                        }
+                    } else if (zones instanceof Map) {
+                        // Check if it's a Map with a data field
+                        if (zones.data instanceof List) {
+                            zones = zones.data
+                            logDebug "Extracted List from Map.data"
+                        } else {
+                            log.error "Response is a Map but data is not a List: ${zones}"
                             return
                         }
-                    } else if (zones instanceof Map && zones.data) {
-                        // Handle case where response.data might be a Map with a data field
-                        zones = zones.data
-                        logDebug "Extracted data from Map"
+                    } else {
+                        log.error "Response is not a List, String starting with [, or Map with data. Type unknown. Value: ${zones}"
+                        return
                     }
                 }
                 
@@ -725,7 +743,7 @@ def poll() {
                         log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
                     }
                 } else {
-                    log.error "Invalid response format - expected List after parsing. Got: ${zones}"
+                    log.error "After all parsing attempts, zones is still not a List. Value: ${zones}"
                 }
             } else {
                 log.error "Poll failed with status: ${response.status}"
