@@ -12,6 +12,20 @@
  * Based on the Oelo Lights Home Assistant integration:
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
+ * Hubitat Groovy Sandbox Restrictions:
+ * The following functions/methods are NOT available in Hubitat's sandboxed Groovy environment:
+ * 
+ * - getClass() - Cannot use .getClass() or ?.getClass() on any object
+ *   Error: "Expression [MethodCallExpression] is not allowed"
+ *   Workaround: Use instanceof checks instead of getClass().name
+ * 
+ * - response.json - HttpResponseDecorator does not have a 'json' property
+ *   Error: "No such property: json for class: groovyx.net.http.HttpResponseDecorator"
+ *   Workaround: Use response.data instead (may be String, List, or Map depending on content-type)
+ * 
+ * - Dynamic introspection methods - Limited reflection capabilities
+ *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
+ * 
  * @author Curtis Ide
  * @version 0.6.10
  */
@@ -723,7 +737,7 @@ def poll() {
                                 log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
                             }
                         } else {
-                            log.error "Parsed JSON string but result is not a List: ${zones.getClass().name}"
+                            log.error "Parsed JSON string but result is not a List"
                         }
                     } catch (Exception e) {
                         log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
@@ -732,7 +746,7 @@ def poll() {
                 }
                 
                 // If it's something else, log what we got
-                log.error "Unexpected response.data type: ${zones?.getClass()?.name ?: 'null'}. Value: ${zones?.toString()?.take(200) ?: 'null'}"
+                log.error "Unexpected response.data type. Value: ${zones?.toString()?.take(200) ?: 'null'}"
             } else {
                 log.error "Poll failed with status: ${response.status}"
             }
