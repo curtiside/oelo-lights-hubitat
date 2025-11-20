@@ -12,8 +12,8 @@
  * Based on the Oelo Lights Home Assistant integration:
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
- * @author Your Name
- * @version 1.0.0
+ * @author Curtis Ide
+ * @version 0.5.0
  */
 
 metadata {
