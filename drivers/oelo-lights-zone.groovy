@@ -5,15 +5,15 @@
  * Designed for use with Hubitat's Simple Automation Rules app.
  * 
  * Primary Usage:
- * - setEffect(patternName) - Set a pattern (stores for future on() calls)
- * - on() - Turn on lights using last set pattern
+ * - setSelectedPattern() - Set pattern chosen from dropdown
  * - off() - Turn off lights
+ * - refresh() - Get current state from controller
  * 
  * Based on the Oelo Lights Home Assistant integration:
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.5.0
+ * @version 0.6.0
  */
 
 metadata {
@@ -28,6 +28,7 @@ metadata {
         attribute "effectList", "string"
         attribute "verificationStatus", "string"
         attribute "discoveredPatterns", "string"
+        attribute "driverVersion", "string"
         
         // Custom command for pattern selection
         command "setSelectedPattern"
@@ -112,6 +113,11 @@ def initialize() {
     
     sendEvent(name: "zone", value: zoneNumber)
     sendEvent(name: "controllerIP", value: controllerIP)
+    
+    // Set driver version in state and attribute
+    def driverVersion = "0.6.0"
+    state.driverVersion = driverVersion
+    sendEvent(name: "driverVersion", value: driverVersion)
     
     // Build and expose effect list for Simple Automation Rules (includes custom patterns)
     def effectList = buildEffectList()
