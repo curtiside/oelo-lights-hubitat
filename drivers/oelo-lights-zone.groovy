@@ -110,6 +110,9 @@ def initialize() {
     def effectList = buildEffectList()
     sendEvent(name: "effectList", value: effectList)
     
+    // Update discovered patterns attribute
+    updateDiscoveredPatternsAttribute()
+    
     // Start polling if enabled
     if (autoPoll) {
         unschedule()
@@ -777,6 +780,8 @@ def updateZoneState(Map zoneData) {
         if (!state.discoveredPatterns.contains(pattern)) {
             state.discoveredPatterns.add(pattern)
             logDebug "Discovered pattern from controller: ${pattern}"
+            // Update attribute when new pattern is discovered
+            updateDiscoveredPatternsAttribute()
         }
     }
     
@@ -794,6 +799,16 @@ def findEffectName(String patternType) {
     if (!PATTERNS) return null
     def match = PATTERNS.find { name, url -> url.contains("patternType=${patternType}") }
     return match ? match.key : null
+}
+
+// Update discovered patterns attribute
+def updateDiscoveredPatternsAttribute() {
+    if (state.discoveredPatterns && state.discoveredPatterns.size() > 0) {
+        def patternsList = state.discoveredPatterns.sort().join(", ")
+        sendEvent(name: "discoveredPatterns", value: patternsList)
+    } else {
+        sendEvent(name: "discoveredPatterns", value: "None discovered yet")
+    }
 }
 
 // Color Conversion Utilities
