@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.6.8",
+	"version": "0.6.9",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.6.8\n- Support for 6 zones as separate virtual devices\n- Commands: off, setSelectedPattern, refresh\n- Fixed response.json error (removed non-existent property)\n- Fixed driver version state synchronization\n- Improved JSON parsing fallback logic",
+	"releaseNotes": "Oelo Lights Zone Driver v0.6.9\n- Support for 6 zones as separate virtual devices\n- Commands: off, setSelectedPattern, refresh\n- Simplified JSON parsing - always parse if not List\n- Removed complex type checking that was causing errors\n- More robust handling of Hubitat response.data wrapper types",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
