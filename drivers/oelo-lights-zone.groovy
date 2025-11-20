@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.1
+ * @version 0.6.2
  */
 
 metadata {
@@ -32,6 +32,7 @@ metadata {
         
         // Custom command for pattern selection
         command "setSelectedPattern"
+        command "setPattern", ["string"]
     }
     
     preferences {
@@ -76,11 +77,15 @@ metadata {
 
 def installed() {
     log.info "Oelo Lights Zone driver installed"
+    // Set driver version immediately
+    setDriverVersion()
     initialize()
 }
 
 def updated() {
     log.info "Oelo Lights Zone driver updated"
+    // Set driver version immediately
+    setDriverVersion()
     initialize()
     
     // Refresh effect list if custom patterns changed
@@ -94,7 +99,18 @@ def updated() {
     updateDiscoveredPatternsAttribute()
 }
 
+// Set driver version in state and attribute (called unconditionally)
+def setDriverVersion() {
+    def driverVersion = "0.6.2"
+    state.driverVersion = driverVersion
+    sendEvent(name: "driverVersion", value: driverVersion)
+    logDebug "Driver version set to: ${driverVersion}"
+}
+
 def initialize() {
+    // Set driver version (in case initialize is called directly)
+    setDriverVersion()
+    
     if (!controllerIP) {
         log.error "Controller IP address not configured"
         return
@@ -113,11 +129,6 @@ def initialize() {
     
     sendEvent(name: "zone", value: zoneNumber)
     sendEvent(name: "controllerIP", value: controllerIP)
-    
-    // Set driver version in state and attribute
-    def driverVersion = "0.6.1"
-    state.driverVersion = driverVersion
-    sendEvent(name: "driverVersion", value: driverVersion)
     
     // Build and expose effect list for Simple Automation Rules (includes custom patterns)
     def effectList = buildEffectList()
@@ -212,16 +223,27 @@ def setEffect(String effectName) {
     }
 }
 
-// Custom command: Set pattern from dropdown selection
+// Custom command: Set pattern from dropdown selection (Preferences)
 def setSelectedPattern() {
     def patternName = settings.selectedPattern
     if (!patternName || patternName == "") {
-        log.warn "No pattern selected. Please select a pattern from the dropdown first."
+        log.warn "No pattern selected. Please select a pattern from Preferences → Commands section first."
         return
     }
     
-    log.info "Setting pattern from Commands dropdown: ${patternName}"
+    log.info "Setting pattern from Preferences dropdown: ${patternName}"
     setEffect(patternName)
+}
+
+// Custom command: Set pattern by name (can be called from Commands tab or rules)
+def setPattern(String patternName) {
+    if (!patternName || patternName.trim() == "") {
+        log.warn "Pattern name cannot be empty"
+        return
+    }
+    
+    log.info "Setting pattern: ${patternName}"
+    setEffect(patternName.trim())
 }
 
 def getEffectList() {
@@ -673,14 +695,19 @@ def poll() {
                 }
                 
                 if (zones instanceof List) {
-                    def zoneData = zones.find { it.num == zoneNumber }
+                    // Find zone - handle both integer and string zone numbers
+                    def zoneData = zones.find { 
+                        def zoneNum = it.num
+                        zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
+                    }
                     if (zoneData) {
+                        logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', full data=${zoneData}"
                         updateZoneState(zoneData)
                     } else {
-                        log.warn "Zone ${zoneNumber} not found in response"
+                        log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
                     }
                 } else {
-                    log.error "Invalid response format: ${zones}"
+                    log.error "Invalid response format: ${zones} (type: ${zones?.getClass()?.name})"
                 }
             } else {
                 log.error "Poll failed with status: ${response.status}"
@@ -716,19 +743,23 @@ def buildCommandUrl(Map params) {
 }
 
 def updateZoneState(Map zoneData) {
-    def pattern = zoneData.pattern ?: "off"
-    def isOn = pattern != "off"
+    // Extract pattern - handle different possible field names
+    def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
+    def isOn = pattern != "off" && pattern != null && pattern.toString().trim() != ""
+    
+    logDebug "Updating zone state - pattern: '${pattern}', isOn: ${isOn}"
     
     sendEvent(name: "switch", value: isOn ? "on" : "off")
     
     // Track discovered patterns from controller
-    if (pattern && pattern != "off" && pattern != "custom") {
+    if (pattern && pattern != "off" && pattern != "custom" && pattern.toString().trim() != "") {
         if (!state.discoveredPatterns) {
             state.discoveredPatterns = []
         }
-        if (!state.discoveredPatterns.contains(pattern)) {
-            state.discoveredPatterns.add(pattern)
-            logDebug "Discovered pattern from controller: ${pattern}"
+        def patternStr = pattern.toString().trim()
+        if (!state.discoveredPatterns.contains(patternStr)) {
+            state.discoveredPatterns.add(patternStr)
+            log.info "Discovered pattern from controller: ${patternStr}"
             // Update attribute when new pattern is discovered
             updateDiscoveredPatternsAttribute()
         }
@@ -736,7 +767,7 @@ def updateZoneState(Map zoneData) {
     
     if (isOn && pattern != "custom") {
         // Try to match pattern to effect name
-        def effectName = findEffectName(pattern)
+        def effectName = findEffectName(pattern.toString())
         if (effectName) {
             sendEvent(name: "effectName", value: effectName)
         }
