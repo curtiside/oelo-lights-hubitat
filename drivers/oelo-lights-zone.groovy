@@ -44,7 +44,6 @@ metadata {
         }
         
         section("Custom Patterns") {
-            paragraph "Define up to 20 custom patterns with names and RGB colors. Custom patterns will appear in Simple Automation Rules dropdown."
             for (i in 1..20) {
                 input name: "customPattern${i}Name", type: "text", title: "Custom Pattern ${i} Name", description: "Name for custom pattern (e.g., 'My Red Lights')", required: false
                 input name: "customPattern${i}Red", type: "number", title: "Custom Pattern ${i} - Red", range: "0..255", defaultValue: 255, description: "Red value (0-255)", required: false
