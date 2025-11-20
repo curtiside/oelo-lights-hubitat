@@ -115,7 +115,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.7.2
+ * @version 0.7.3
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -272,36 +272,40 @@ def updated() {
     // Set driver version immediately
     setDriverVersion()
     
+    // Store PATTERNS in state if not already stored (try to populate it here too)
+    if (PATTERNS && !state.patternsMap) {
+        state.patternsMap = PATTERNS
+        log.debug "Stored PATTERNS map in state during updated() (${PATTERNS.size()} patterns)"
+    }
+    
     // Handle pattern renaming if renamePattern and newPatternName preferences were set
     if (settings.renamePattern && settings.renamePattern != "" && settings.newPatternName && settings.newPatternName.trim() != "") {
         def oldPatternName = settings.renamePattern
         def newPatternName = settings.newPatternName.trim()
         
-        log.warn "Preference action: Renaming custom pattern '${oldPatternName}' to '${newPatternName}'"
+        def customPatterns = state.customPatterns ?: []
+        
+        // Check if pattern with old name exists - if not, it was already renamed or doesn't exist
+        def patternToRename = customPatterns.find { it && it.name == oldPatternName }
+        if (!patternToRename) {
+            // Pattern with old name doesn't exist - already renamed or never existed, skip
+            log.debug "Pattern '${oldPatternName}' not found - already renamed or doesn't exist, skipping rename action"
+        } else if (patternToRename.name == newPatternName) {
+            // Check if pattern already has the new name (no change needed)
+            log.debug "Pattern '${oldPatternName}' already has name '${newPatternName}', skipping rename action"
+        } else {
+            log.warn "Preference action: Renaming custom pattern '${oldPatternName}' to '${newPatternName}'"
         log.info "Renaming custom pattern: '${oldPatternName}' to '${newPatternName}'"
         
-        def customPatterns = state.customPatterns ?: []
-        def patternFound = false
-        
-        // Find pattern to rename
-        for (int i = 0; i < customPatterns.size(); i++) {
-            if (customPatterns[i] && customPatterns[i].name == oldPatternName) {
-                // Check if new name already exists (and it's not the same pattern)
-                def nameExists = customPatterns.find { it && it.name == newPatternName && it != customPatterns[i] }
-                if (nameExists) {
-                    log.warn "Cannot rename: Pattern name '${newPatternName}' already exists"
-                } else {
-                    customPatterns[i].name = newPatternName
-                    state.customPatterns = customPatterns
-                    log.info "Renamed pattern '${oldPatternName}' to '${newPatternName}'"
-                    patternFound = true
-                }
-                break
-            }
+        // Check if new name already exists (and it's not the same pattern)
+        def nameExists = customPatterns.find { it && it.name == newPatternName && it != patternToRename }
+        if (nameExists) {
+            log.warn "Cannot rename: Pattern name '${newPatternName}' already exists"
+        } else {
+            patternToRename.name = newPatternName
+            state.customPatterns = customPatterns
+            log.info "Renamed pattern '${oldPatternName}' to '${newPatternName}'"
         }
-        
-        if (!patternFound) {
-            log.warn "Pattern '${oldPatternName}' not found for renaming"
         }
     }
     
@@ -345,7 +349,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.7.2"
+    def driverVersion = "0.7.3"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -853,6 +857,12 @@ def getPatternUrl(String effectName) {
     log.debug "getPatternUrl: Looking for effect '${effectName}'"
     
     // Check predefined patterns from state (same approach as custom patterns)
+    // Try to populate state.patternsMap if it's missing and PATTERNS is accessible
+    if (!state.patternsMap && PATTERNS) {
+        state.patternsMap = PATTERNS
+        log.debug "getPatternUrl: Populated state.patternsMap from PATTERNS (${PATTERNS.size()} patterns)"
+    }
+    
     def patternsMap = state.patternsMap
     if (patternsMap) {
         log.debug "getPatternUrl: Checking state.patternsMap (${patternsMap.size()} patterns) for '${effectName}'"
@@ -866,7 +876,7 @@ def getPatternUrl(String effectName) {
             log.debug "getPatternUrl: Pattern '${effectName}' not found in state.patternsMap"
         }
     } else {
-        log.warn "getPatternUrl: state.patternsMap is null - standard patterns not initialized. Try saving device preferences to trigger initialization."
+        log.warn "getPatternUrl: state.patternsMap is null and PATTERNS not accessible - standard patterns unavailable"
     }
     
     // Check custom patterns from state
