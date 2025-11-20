@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.7
+ * @version 0.6.8
  */
 
 metadata {
@@ -101,15 +101,12 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.7"
-    // Always update version if it's different (handles code updates without preference save)
+    def driverVersion = "0.6.8"
+    // Always update both state and attribute to ensure they match
+    state.driverVersion = driverVersion
+    sendEvent(name: "driverVersion", value: driverVersion)
     if (state.driverVersion != driverVersion) {
-        state.driverVersion = driverVersion
-        sendEvent(name: "driverVersion", value: driverVersion)
         log.info "Driver version updated to: ${driverVersion}"
-    } else {
-        // Ensure attribute is set even if state matches
-        sendEvent(name: "driverVersion", value: driverVersion)
     }
 }
 
@@ -691,8 +688,8 @@ def poll() {
             timeout: (commandTimeout ?: 10) * 1000
         ]) { response ->
             if (response.status == 200) {
-                // Try multiple ways to get the JSON data
-                def zones = response.json ?: response.data
+                // Get the JSON data (Hubitat httpGet returns data in response.data)
+                def zones = response.data
                 
                 // If zones is not a List, try to parse it
                 if (!(zones instanceof List)) {
