@@ -23,11 +23,15 @@
  *   Error: "No such property: json for class: groovyx.net.http.HttpResponseDecorator"
  *   Workaround: Use response.data instead (may be String, List, or Map depending on content-type)
  * 
+ * - Fully qualified class names in instanceof checks - Cannot use java.io.InputStream, etc.
+ *   Error: "Expression [ClassExpression] is not allowed: java.io.InputStream"
+ *   Workaround: Use duck typing - try accessing properties/methods (e.g., .text) instead of instanceof checks
+ * 
  * - Dynamic introspection methods - Limited reflection capabilities
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
  * @author Curtis Ide
- * @version 0.6.12
+ * @version 0.6.13
  */
 
 metadata {
@@ -115,7 +119,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.12"
+    def driverVersion = "0.6.13"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -746,9 +750,10 @@ def poll() {
                 }
                 
                 // If it's an InputStream (ByteArrayInputStream), read it as text and parse
-                if (zones instanceof java.io.InputStream) {
-                    try {
-                        def zonesText = zones.text
+                // Check for InputStream by trying to access .text property (safer than instanceof check)
+                try {
+                    def zonesText = zones?.text
+                    if (zonesText) {
                         zones = new groovy.json.JsonSlurper().parseText(zonesText)
                         logDebug "Successfully parsed JSON from InputStream to List"
                         
@@ -766,10 +771,11 @@ def poll() {
                         } else {
                             log.error "Parsed JSON from InputStream but result is not a List"
                         }
-                    } catch (Exception e) {
-                        log.error "Failed to parse JSON from InputStream: ${e.message}"
+                        return
                     }
-                    return
+                } catch (Exception e) {
+                    // If .text access fails, it's not an InputStream, continue to error logging
+                    logDebug "Not an InputStream (or .text access failed): ${e.message}"
                 }
                 
                 // If it's something else, log what we got
