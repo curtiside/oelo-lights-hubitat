@@ -5,7 +5,8 @@
  * Designed for use with Hubitat's Simple Automation Rules app.
  * 
  * Primary Usage:
- * - setSelectedPattern() - Set pattern chosen from dropdown
+ * - setCustomPattern() - Set custom pattern chosen from dropdown
+ * - setStandardPattern() - Set standard/predefined pattern chosen from dropdown
  * - off() - Turn off lights
  * - refresh() - Get current state from controller
  * 
@@ -31,12 +32,11 @@
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
  * @author Curtis Ide
- * @version 0.6.17
+ * @version 0.6.18
  */
 
-// Pattern Definitions - Must be defined before metadata block for getPatternOptions() to access
+// Pattern Definitions - Must be defined before metadata block
 // All predefined patterns from Home Assistant integration
-
 final Map PATTERNS = [
     "American Liberty: Marching with Red White and Blue": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
     "American Liberty: Standing with Red White and Blue": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
@@ -119,7 +119,8 @@ metadata {
         attribute "switch", "string"
         
         // Custom commands
-        command "setSelectedPattern"
+        command "setCustomPattern"
+        command "setStandardPattern"
         command "off"
     }
     
@@ -155,8 +156,16 @@ metadata {
             input name: "commandTimeout", type: "number", title: "Command Timeout (seconds)", range: "5..30", defaultValue: 10, description: "HTTP request timeout"
         }
         
-        section("Commands") {
-            input name: "selectedPattern", type: "enum", title: "Select Pattern", options: getPatternOptions(), required: false, description: "Choose a pattern to set"
+        section("Custom Pattern Selection") {
+            input name: "selectedPattern", type: "enum", title: "Select Custom Pattern", 
+                options: getCustomPatternOptions(), 
+                required: false, description: "Choose a custom pattern to set"
+        }
+        
+        section("Standard Pattern Selection") {
+            input name: "selectedStandardPattern", type: "enum", title: "Select Standard Pattern", 
+                options: (["": "-- Select Pattern --"] + PATTERNS.collectEntries { [it.key, it.key] }).sort(), 
+                required: false, description: "Choose a standard/predefined pattern to set"
         }
     }
 }
@@ -302,7 +311,7 @@ def off() {
     }
 }
 
-// Internal function: Set effect (used by setSelectedPattern command)
+// Internal function: Set effect (used by setCustomPattern and setStandardPattern commands)
 def setEffect(String effectName) {
     logDebug "Setting effect: ${effectName}"
     
@@ -322,15 +331,27 @@ def setEffect(String effectName) {
     }
 }
 
-// Custom command: Set pattern from dropdown selection (Preferences)
-def setSelectedPattern() {
+// Custom command: Set custom pattern from dropdown selection (Preferences)
+def setCustomPattern() {
     def patternName = settings.selectedPattern
     if (!patternName || patternName == "") {
-        log.warn "No pattern selected. Please select a pattern from Preferences → Commands section first."
+        log.warn "No custom pattern selected. Please select a custom pattern from Preferences → Custom Pattern Selection section first."
         return
     }
     
-    log.info "Setting pattern from Preferences dropdown: ${patternName}"
+    log.info "Setting custom pattern from Preferences dropdown: ${patternName}"
+    setEffect(patternName)
+}
+
+// Custom command: Set standard/predefined pattern from dropdown selection (Preferences)
+def setStandardPattern() {
+    def patternName = settings.selectedStandardPattern
+    if (!patternName || patternName == "") {
+        log.warn "No standard pattern selected. Please select a standard pattern from Preferences → Standard Pattern Selection section first."
+        return
+    }
+    
+    log.info "Setting standard pattern from Preferences dropdown: ${patternName}"
     setEffect(patternName)
 }
 
@@ -367,15 +388,14 @@ def buildEffectList() {
     return result
 }
 
-// Build pattern options for enum dropdown (custom patterns first, then predefined)
-def getPatternOptions() {
+// Build custom pattern options for enum dropdown (only custom patterns from settings)
+def getCustomPatternOptions() {
     def options = [:]
     
     // Add empty option first
-    options[""] = "-- Select Pattern --"
+    options[""] = "-- Select Custom Pattern --"
     
-    // During metadata parsing, directly access PATTERNS and settings
-    // Custom patterns first (if settings available)
+    // Custom patterns from settings (if available during metadata parsing)
     def customPatterns = []
     try {
         if (settings) {
@@ -390,20 +410,8 @@ def getPatternOptions() {
         // settings not available during metadata parsing - that's OK
     }
     
-    // Predefined patterns from PATTERNS map
-    // PATTERNS is defined before metadata block, so it should be accessible
-    def predefinedPatterns = []
-    if (PATTERNS) {
-        predefinedPatterns.addAll(PATTERNS.keySet())
-    }
-    
-    // Add custom patterns first (sorted)
+    // Add custom patterns (sorted)
     customPatterns.sort().each { pattern ->
-        options[pattern] = pattern
-    }
-    
-    // Add predefined patterns (sorted)
-    predefinedPatterns.sort().each { pattern ->
         options[pattern] = pattern
     }
     
