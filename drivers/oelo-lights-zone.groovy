@@ -744,19 +744,6 @@ def findEffectName(String patternType) {
     return match ? match.key : null
 }
 
-def getPatternUrl(String effectName) {
-    def pattern = PATTERNS[effectName]
-    if (!pattern) {
-        return null
-    }
-    
-    // Replace {zone} placeholder
-    def url = pattern.replace("{zone}", zoneNumber.toString())
-    
-    // Build full URL
-    return "http://${controllerIP}/${url}"
-}
-
 // Color Conversion Utilities
 
 def rgbToHsv(int r, int g, int b) {
@@ -834,7 +821,7 @@ def logDebug(String msg) {
 // TODO: Import from patterns.py or define inline
 // This is a subset - full list should be imported from patterns.py
 
-static final Map PATTERNS = [
+final Map PATTERNS = [
     "Christmas: Candy Cane Glimmer": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,255,0,0,255,255,255,255,0,0,&direction=R&speed=20&gap=0&other=0&pause=0",
     "Christmas: Candy Cane Lane": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,255,0,0,255,0,0,255,0,0,&direction=R&speed=4&gap=0&other=0&pause=0",
     "Halloween: Goblin Delight": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,53,255,0,53,255,0,53,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
