@@ -10,7 +10,7 @@
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
 			"name": "Oelo Lights Zone",
 			"namespace": "pizzaman383",
-			"location": "https://raw.githubusercontent.com/curtiside/oelo-lights-hubitat/master/drivers/oelo-lights-zone.groovy",
+			"location": "https://raw.githubusercontent.com/curtiside/oelo-lights-hubitat/main/drivers/oelo-lights-zone.groovy",
 			"required": true
 		}
 	]
