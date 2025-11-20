@@ -80,7 +80,9 @@ def updated() {
     // Refresh effect list if custom patterns changed
     def effectList = buildEffectList()
     sendEvent(name: "effectList", value: effectList)
-    log.info "Effect list updated: ${effectList.size()} patterns available (${PATTERNS.size()} predefined + ${effectList.size() - PATTERNS.size()} custom)"
+    def predefinedCount = PATTERNS ? PATTERNS.size() : 0
+    def customCount = effectList.size() - predefinedCount
+    log.info "Effect list updated: ${effectList.size()} patterns available (${predefinedCount} predefined + ${customCount} custom)"
 }
 
 def initialize() {
@@ -309,7 +311,9 @@ def buildEffectList() {
     def list = []
     
     // Add predefined patterns
-    list.addAll(PATTERNS.keySet())
+    if (PATTERNS) {
+        list.addAll(PATTERNS.keySet())
+    }
     
     // Add custom patterns (if names are set)
     for (int i = 1; i <= 20; i++) {
@@ -325,7 +329,7 @@ def buildEffectList() {
 // Get pattern URL - handles both predefined and custom patterns
 def getPatternUrl(String effectName) {
     // Check predefined patterns first
-    def pattern = PATTERNS[effectName]
+    def pattern = PATTERNS ? PATTERNS[effectName] : null
     if (pattern) {
         // Replace {zone} placeholder
         def url = pattern.replace("{zone}", zoneNumber.toString())
@@ -739,6 +743,7 @@ def updateZoneState(Map zoneData) {
 
 def findEffectName(String patternType) {
     // Try to find matching effect by patternType
+    if (!PATTERNS) return null
     def match = PATTERNS.find { name, url -> url.contains("patternType=${patternType}") }
     return match ? match.key : null
 }
@@ -782,7 +787,11 @@ def hsvToRgb(int h, int s, int v) {
     v = v / 100.0
     
     def c = v * s
-    def x = c * (1 - Math.abs((h / 60.0) % 2 - 1))
+    def hDiv60 = h / 60.0
+    // Calculate (hDiv60 % 2) manually since BigDecimal doesn't support mod()
+    // (x % 2) = x - 2 * floor(x/2)
+    def modPart = hDiv60 - 2 * Math.floor(hDiv60 / 2)
+    def x = c * (1 - Math.abs(modPart - 1))
     def m = v - c
     
     def r = 0, g = 0, b = 0
