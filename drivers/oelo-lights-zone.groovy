@@ -707,7 +707,7 @@ def poll() {
                         log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
                     }
                 } else {
-                    log.error "Invalid response format: ${zones} (type: ${zones?.getClass()?.name})"
+                    log.error "Invalid response format: ${zones}"
                 }
             } else {
                 log.error "Poll failed with status: ${response.status}"
@@ -738,7 +738,7 @@ def toIntSafe(value, defaultValue = 0) {
 }
 
 def buildCommandUrl(Map params) {
-    def query = params.collect { k, v -> "${k}=${URLEncoder.encode(v.toString(), "UTF-8")}" }.join("&")
+    def query = params.collect { k, v -> "${k}=${java.net.URLEncoder.encode(v.toString(), "UTF-8")}" }.join("&")
     return "http://${controllerIP}/setPattern?${query}"
 }
 
