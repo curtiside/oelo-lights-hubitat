@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.9
+ * @version 0.6.10
  */
 
 metadata {
@@ -101,7 +101,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.9"
+    def driverVersion = "0.6.10"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -705,30 +705,34 @@ def poll() {
                     return
                 }
                 
-                // If not a List, always try to parse as JSON (regardless of type)
-                def zonesStr = zones?.toString() ?: ""
-                
-                try {
-                    zones = new groovy.json.JsonSlurper().parseText(zonesStr)
-                    logDebug "Successfully parsed JSON to List"
-                    
-                    if (zones instanceof List) {
-                        def zoneData = zones.find { 
-                            def zoneNum = it.num
-                            zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
-                        }
-                        if (zoneData) {
-                            logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
-                            updateZoneState(zoneData)
+                // If it's a String, parse it as JSON
+                if (zones instanceof String) {
+                    try {
+                        zones = new groovy.json.JsonSlurper().parseText(zones)
+                        logDebug "Successfully parsed JSON string to List"
+                        
+                        if (zones instanceof List) {
+                            def zoneData = zones.find { 
+                                def zoneNum = it.num
+                                zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
+                            }
+                            if (zoneData) {
+                                logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
+                                updateZoneState(zoneData)
+                            } else {
+                                log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
+                            }
                         } else {
-                            log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
+                            log.error "Parsed JSON string but result is not a List: ${zones.getClass().name}"
                         }
-                    } else {
-                        log.error "Parsed JSON but result is not a List"
+                    } catch (Exception e) {
+                        log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
                     }
-                } catch (Exception e) {
-                    log.error "Failed to parse JSON response: ${e.message}"
+                    return
                 }
+                
+                // If it's something else, log what we got
+                log.error "Unexpected response.data type: ${zones?.getClass()?.name ?: 'null'}. Value: ${zones?.toString()?.take(200) ?: 'null'}"
             } else {
                 log.error "Poll failed with status: ${response.status}"
             }
