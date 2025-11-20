@@ -1,26 +1,102 @@
 /**
  * Oelo Lights Zone Driver for Hubitat
  * 
- * Controls a single zone of an Oelo Lights controller via HTTP API.
- * Designed for use with Hubitat's Simple Automation Rules app.
+ * Controls a single zone of an Oelo Lights controller via HTTP REST API.
+ * Designed for use with Hubitat's Simple Automation Rules app for scheduled
+ * pattern-based lighting control.
  * 
- * Primary Usage:
- * - setCustomPattern() - Set custom pattern chosen from dropdown
- * - setStandardPattern() - Set standard/predefined pattern chosen from dropdown
- * - off() - Turn off lights
- * - refresh() - Get current state from controller
+ * ## Overview
  * 
- * Based on the Oelo Lights Home Assistant integration:
- * https://github.com/Cinegration/Oelo_Lights_HA
+ * This driver provides Hubitat integration for Oelo Lights controllers, allowing
+ * you to control up to 6 zones independently. Each zone requires a separate
+ * virtual device instance with this driver.
  * 
- * Hubitat Groovy Sandbox Restrictions:
+ * ## Configuration Requirements
+ * 
+ * **Required Settings:**
+ * - Controller IP Address: IPv4 address of Oelo controller (must be manually entered)
+ * - Zone Number: Zone number (1-6) that this driver instance controls
+ * 
+ * **Optional Settings:**
+ * - Poll Interval: How often to poll controller status (default: 30 seconds)
+ * - Auto Polling: Automatically poll controller status (default: enabled)
+ * - Custom Patterns: Up to 20 user-defined patterns with custom names
+ * - Debug Logging: Enable detailed logging for troubleshooting
+ * - Command Timeout: HTTP request timeout (default: 10 seconds)
+ * 
+ * **No Authentication Required:**
+ * The Oelo controller uses an open HTTP API with no authentication. No username,
+ * password, API keys, or tokens are needed.
+ * 
+ * See CONFIGURATION.md for complete configuration details.
+ * 
+ * ## Protocol
+ * 
+ * **Base URL:** `http://{IP_ADDRESS}/`
+ * 
+ * **Endpoints:**
+ * - `GET /getController` - Returns JSON array of zone statuses
+ * - `GET /setPattern?{params}` - Sets pattern/color for zones
+ * 
+ * **Status Response Format:**
+ * JSON array with zone objects containing:
+ * - `num`: Zone number (1-6)
+ * - `pattern`: Current pattern name or "off"
+ * - `isOn`: Boolean indicating if zone is on
+ * - Additional fields: `enabled`, `chipID`, `fw`, `ledCnt`, `name`, `speed`, `gap`, etc.
+ * 
+ * See PROTOCOL_SUMMARY.md for detailed protocol documentation.
+ * 
+ * ## Commands
+ * 
+ * **Primary Commands:**
+ * - `setCustomPattern()` - Set custom pattern chosen from Custom Pattern Selection dropdown
+ * - `setStandardPattern()` - Set standard/predefined pattern chosen from Standard Pattern Selection dropdown
+ * - `off()` - Turn off lights
+ * - `refresh()` - Get current state from controller
+ * 
+ * **Pattern Selection:**
+ * - Custom patterns: Configured in device preferences (up to 20 patterns)
+ * - Standard patterns: 77 predefined patterns from Home Assistant integration
+ * - Patterns are selected via dropdown menus in device preferences
+ * - Commands use the selected pattern from their respective dropdown
+ * 
+ * ## Pattern Support
+ * 
+ * **Predefined Patterns:**
+ * - 77 standard patterns organized by category (Christmas, Halloween, Fourth of July, etc.)
+ * - Patterns include full URL parameters (colors, speed, direction, etc.)
+ * - Pattern names and URLs are defined in PATTERNS map
+ * 
+ * **Custom Patterns:**
+ * - Up to 20 custom patterns can be configured per device
+ * - Custom patterns use pattern name as patternType (controller has settings stored)
+ * - Custom pattern names are user-defined
+ * - Custom patterns appear in Custom Pattern Selection dropdown only
+ * 
+ * ## Attributes
+ * 
+ * - `zone`: Zone number (1-6)
+ * - `controllerIP`: Controller IP address
+ * - `lastCommand`: Last command URL sent
+ * - `effectList`: Comma-separated list of available patterns
+ * - `verificationStatus`: Command verification status (if enabled)
+ * - `driverVersion`: Current driver version
+ * - `switch`: Current switch state ("on" or "off")
+ * 
+ * ## Capabilities
+ * 
+ * - `Refresh`: Standard Hubitat refresh capability
+ * 
+ * ## Hubitat Groovy Sandbox Restrictions
+ * 
  * The following functions/methods are NOT available in Hubitat's sandboxed Groovy environment:
  * 
- * - getClass() - Cannot use .getClass() or ?.getClass() on any object
+ * - `getClass()` - Cannot use .getClass() or ?.getClass() on any object
  *   Error: "Expression [MethodCallExpression] is not allowed"
  *   Workaround: Use instanceof checks instead of getClass().name
  * 
- * - response.json - HttpResponseDecorator does not have a 'json' property
+ * - `response.json` - HttpResponseDecorator does not have a 'json' property
  *   Error: "No such property: json for class: groovyx.net.http.HttpResponseDecorator"
  *   Workaround: Use response.data instead (may be String, List, or Map depending on content-type)
  * 
@@ -31,8 +107,14 @@
  * - Dynamic introspection methods - Limited reflection capabilities
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
+ * ## References
+ * 
+ * - Based on Oelo Lights Home Assistant integration: https://github.com/Cinegration/Oelo_Lights_HA
+ * - Hubitat Developer Documentation: https://docs2.hubitat.com/en/developer/overview
+ * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
+ * 
  * @author Curtis Ide
- * @version 0.6.18
+ * @version 0.7.0
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -130,9 +212,16 @@ metadata {
             input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
         }
         
-        section("Polling") {
-            input name: "pollInterval", type: "number", title: "Poll Interval (seconds)", range: "10..300", defaultValue: 30, description: "How often to poll controller status"
-            input name: "autoPoll", type: "bool", title: "Enable Auto Polling", defaultValue: true, description: "Automatically poll controller status"
+        section("Standard Pattern Selection") {
+            input name: "selectedStandardPattern", type: "enum", title: "Select Standard Pattern", 
+                options: (["": "-- Select Pattern --"] + PATTERNS.collectEntries { [it.key, it.key] }).sort(), 
+                required: false, description: "Choose a standard/predefined pattern to set"
+        }
+        
+        section("Custom Pattern Selection") {
+            input name: "selectedPattern", type: "enum", title: "Select Custom Pattern", 
+                options: getCustomPatternOptions(), 
+                required: false, description: "Choose a custom pattern to set"
         }
         
         section("Custom Patterns") {
@@ -142,6 +231,25 @@ metadata {
             input name: "customPattern4Name", type: "text", title: "Custom Pattern 4 Name", description: "Pattern name as stored on controller", required: false
             input name: "customPattern5Name", type: "text", title: "Custom Pattern 5 Name", description: "Pattern name as stored on controller", required: false
             input name: "customPattern6Name", type: "text", title: "Custom Pattern 6 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern7Name", type: "text", title: "Custom Pattern 7 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern8Name", type: "text", title: "Custom Pattern 8 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern9Name", type: "text", title: "Custom Pattern 9 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern10Name", type: "text", title: "Custom Pattern 10 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern11Name", type: "text", title: "Custom Pattern 11 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern12Name", type: "text", title: "Custom Pattern 12 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern13Name", type: "text", title: "Custom Pattern 13 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern14Name", type: "text", title: "Custom Pattern 14 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern15Name", type: "text", title: "Custom Pattern 15 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern16Name", type: "text", title: "Custom Pattern 16 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern17Name", type: "text", title: "Custom Pattern 17 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern18Name", type: "text", title: "Custom Pattern 18 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern19Name", type: "text", title: "Custom Pattern 19 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern20Name", type: "text", title: "Custom Pattern 20 Name", description: "Pattern name as stored on controller", required: false
+        }
+        
+        section("Polling") {
+            input name: "pollInterval", type: "number", title: "Poll Interval (seconds)", range: "10..300", defaultValue: 30, description: "How often to poll controller status"
+            input name: "autoPoll", type: "bool", title: "Enable Auto Polling", defaultValue: true, description: "Automatically poll controller status"
         }
         
         section("Command Verification") {
@@ -154,18 +262,6 @@ metadata {
         section("Advanced") {
             input name: "logEnable", type: "bool", title: "Enable Debug Logging", defaultValue: false, description: "Enable detailed logging"
             input name: "commandTimeout", type: "number", title: "Command Timeout (seconds)", range: "5..30", defaultValue: 10, description: "HTTP request timeout"
-        }
-        
-        section("Custom Pattern Selection") {
-            input name: "selectedPattern", type: "enum", title: "Select Custom Pattern", 
-                options: getCustomPatternOptions(), 
-                required: false, description: "Choose a custom pattern to set"
-        }
-        
-        section("Standard Pattern Selection") {
-            input name: "selectedStandardPattern", type: "enum", title: "Select Standard Pattern", 
-                options: (["": "-- Select Pattern --"] + PATTERNS.collectEntries { [it.key, it.key] }).sort(), 
-                required: false, description: "Choose a standard/predefined pattern to set"
         }
     }
 }
@@ -367,7 +463,7 @@ def buildEffectList() {
     
     // Add custom patterns FIRST (if names are set) - handle null settings during metadata parsing
     if (settings) {
-        for (int i = 1; i <= 6; i++) {
+        for (int i = 1; i <= 20; i++) {
             def name = settings."customPattern${i}Name"
             if (name && name.trim()) {
                 customList.add(name.trim())
@@ -399,7 +495,7 @@ def getCustomPatternOptions() {
     def customPatterns = []
     try {
         if (settings) {
-            for (int i = 1; i <= 6; i++) {
+            for (int i = 1; i <= 20; i++) {
                 def name = settings."customPattern${i}Name"
                 if (name && name.trim()) {
                     customPatterns.add(name.trim())
@@ -429,7 +525,7 @@ def getPatternUrl(String effectName) {
     }
     
     // Check custom patterns - use pattern name as patternType
-    for (int i = 1; i <= 6; i++) {
+    for (int i = 1; i <= 20; i++) {
         def customName = settings."customPattern${i}Name"
         if (customName && customName.trim() == effectName) {
             // Use the pattern name as patternType - controller has pattern settings stored
