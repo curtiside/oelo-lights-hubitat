@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.6.3",
+	"version": "0.6.4",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.6.3\n- Support for 6 zones independently\n- Simplified commands: off, setSelectedPattern, refresh, setPattern\n- Pattern discovery from controller polling with improved logging\n- Fixed switch state updates from controller\n- Fixed driver version display in Current States\n- Improved pattern extraction and zone matching\n- Removed restricted getClass() method call\n- Fully qualified URLEncoder for Hubitat compatibility",
+	"releaseNotes": "Oelo Lights Zone Driver v0.6.4\n- Support for 6 zones independently\n- Commands: off, setSelectedPattern, refresh\n- Removed Switch capability and on() command\n- Removed setPattern command (use setSelectedPattern instead)\n- Pattern discovery from controller polling\n- Fixed switch state updates from controller\n- Improved refresh functionality",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",

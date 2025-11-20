@@ -13,12 +13,11 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.3
+ * @version 0.6.4
  */
 
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
-        capability "Switch"
         capability "Refresh"
         
         // Custom attributes
@@ -29,10 +28,11 @@ metadata {
         attribute "verificationStatus", "string"
         attribute "discoveredPatterns", "string"
         attribute "driverVersion", "string"
+        attribute "switch", "string"
         
-        // Custom command for pattern selection
+        // Custom commands
         command "setSelectedPattern"
-        command "setPattern", ["string"]
+        command "off"
     }
     
     preferences {
@@ -101,7 +101,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.3"
+    def driverVersion = "0.6.4"
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
     logDebug "Driver version set to: ${driverVersion}"
@@ -176,10 +176,17 @@ def uninstalled() {
 // Capability: Refresh
 
 def refresh() {
+    log.info "Refresh requested for zone ${zoneNumber}"
+    if (!controllerIP) {
+        log.error "Cannot refresh: Controller IP not configured"
+        return
+    }
+    
+    // Call poll directly - this will update device state from controller
     poll()
 }
 
-// Capability: Switch
+// Custom command: Turn off lights
 
 def off() {
     logDebug "Turning zone ${zoneNumber} OFF"
@@ -233,17 +240,6 @@ def setSelectedPattern() {
     
     log.info "Setting pattern from Preferences dropdown: ${patternName}"
     setEffect(patternName)
-}
-
-// Custom command: Set pattern by name (can be called from Commands tab or rules)
-def setPattern(String patternName) {
-    if (!patternName || patternName.trim() == "") {
-        log.warn "Pattern name cannot be empty"
-        return
-    }
-    
-    log.info "Setting pattern: ${patternName}"
-    setEffect(patternName.trim())
 }
 
 def getEffectList() {

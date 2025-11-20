@@ -120,9 +120,13 @@ if command -v gh &> /dev/null; then
         echo -e "${YELLOW}[DRY RUN] Release title: Version ${VERSION}${NC}"
     else
         echo -e "${GREEN}Creating GitHub release...${NC}"
-        echo "$RELEASE_NOTES" | gh release create "$TAG" \
+        # Create a temporary file for release notes to ensure proper handling
+        TEMP_NOTES=$(mktemp)
+        echo -e "$RELEASE_NOTES" > "$TEMP_NOTES"
+        gh release create "$TAG" \
             --title "Version ${VERSION}" \
-            --notes -
+            --notes-file "$TEMP_NOTES"
+        rm -f "$TEMP_NOTES"
         echo -e "${GREEN}GitHub release created successfully${NC}"
     fi
 else
