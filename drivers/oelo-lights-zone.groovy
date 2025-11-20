@@ -203,6 +203,7 @@ metadata {
         // Custom commands
         command "setCustomPattern"
         command "setStandardPattern"
+        command "getPattern"
         command "off"
     }
     
@@ -224,27 +225,10 @@ metadata {
                 required: false, description: "Choose a custom pattern to set"
         }
         
-        section("Custom Patterns") {
-            input name: "customPattern1Name", type: "text", title: "Custom Pattern 1 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern2Name", type: "text", title: "Custom Pattern 2 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern3Name", type: "text", title: "Custom Pattern 3 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern4Name", type: "text", title: "Custom Pattern 4 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern5Name", type: "text", title: "Custom Pattern 5 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern6Name", type: "text", title: "Custom Pattern 6 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern7Name", type: "text", title: "Custom Pattern 7 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern8Name", type: "text", title: "Custom Pattern 8 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern9Name", type: "text", title: "Custom Pattern 9 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern10Name", type: "text", title: "Custom Pattern 10 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern11Name", type: "text", title: "Custom Pattern 11 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern12Name", type: "text", title: "Custom Pattern 12 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern13Name", type: "text", title: "Custom Pattern 13 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern14Name", type: "text", title: "Custom Pattern 14 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern15Name", type: "text", title: "Custom Pattern 15 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern16Name", type: "text", title: "Custom Pattern 16 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern17Name", type: "text", title: "Custom Pattern 17 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern18Name", type: "text", title: "Custom Pattern 18 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern19Name", type: "text", title: "Custom Pattern 19 Name", description: "Pattern name as stored on controller", required: false
-            input name: "customPattern20Name", type: "text", title: "Custom Pattern 20 Name", description: "Pattern name as stored on controller", required: false
+        section("Custom Pattern Management") {
+            input name: "deletePattern", type: "enum", title: "Delete Custom Pattern", 
+                options: getCustomPatternOptions(), 
+                required: false, description: "Select a custom pattern to delete (pattern will be deleted when preferences are saved)"
         }
         
         section("Polling") {
@@ -279,6 +263,41 @@ def updated() {
     log.info "Oelo Lights Zone driver updated"
     // Set driver version immediately
     setDriverVersion()
+    
+    // Handle pattern deletion if deletePattern preference was set
+    if (settings.deletePattern && settings.deletePattern != "") {
+        def patternName = settings.deletePattern
+        log.info "Deleting custom pattern: ${patternName}"
+        
+        def customPatterns = state.customPatterns ?: []
+        def indexToDelete = -1
+        
+        // Find pattern to delete
+        for (int i = 0; i < customPatterns.size(); i++) {
+            if (customPatterns[i] && customPatterns[i].name == patternName) {
+                indexToDelete = i
+                break
+            }
+        }
+        
+        if (indexToDelete != -1) {
+            // Remove pattern and compact list
+            customPatterns.remove(indexToDelete)
+            // Remove trailing nulls
+            while (customPatterns.size() > 0 && customPatterns[customPatterns.size() - 1] == null) {
+                customPatterns.remove(customPatterns.size() - 1)
+            }
+            
+            state.customPatterns = customPatterns
+            log.info "Deleted pattern '${patternName}' and compacted list"
+            
+            // Clear the deletePattern setting (can't use app.updateSetting in driver, will clear on next save)
+            // User will need to save preferences again to clear the selection
+        } else {
+            log.warn "Pattern '${patternName}' not found for deletion"
+        }
+    }
+    
     initialize()
     
     // Refresh effect list if custom patterns changed
@@ -291,7 +310,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.16"
+    def driverVersion = "0.7.0"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -303,6 +322,14 @@ def setDriverVersion() {
 def initialize() {
     // Set driver version (in case initialize is called directly)
     setDriverVersion()
+    
+    // Initialize custom patterns storage if not exists
+    if (!state.customPatterns) {
+        state.customPatterns = []
+    }
+    
+    // Migrate old settings-based patterns to state (one-time migration)
+    migrateOldCustomPatterns()
     
     if (!controllerIP) {
         log.error "Controller IP address not configured"
@@ -451,6 +478,157 @@ def setStandardPattern() {
     setEffect(patternName)
 }
 
+// Custom command: Get current pattern from controller and store it
+def getPattern() {
+    log.info "Getting current pattern from controller for zone ${zoneNumber}"
+    
+    if (!controllerIP) {
+        log.error "Cannot get pattern: Controller IP not configured"
+        return
+    }
+    
+    // Fetch current zone state
+    fetchZoneData { zoneData ->
+        if (!zoneData) {
+            log.error "Could not retrieve zone data from controller"
+            return
+        }
+        
+        // Extract pattern information
+        def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
+        if (pattern == "off") {
+            log.warn "Zone is currently off - no pattern to capture"
+            return
+        }
+        
+        // Build URL parameters from zone data
+        def urlParams = buildPatternParamsFromZoneData(zoneData)
+        if (!urlParams) {
+            log.error "Could not build pattern parameters from zone data"
+            return
+        }
+        
+        // Generate pattern name (use pattern type + timestamp if no name available)
+        def patternName = zoneData.name ?: "${pattern}_${new Date().format('yyyyMMdd_HHmmss')}"
+        
+        // Find next empty slot
+        def customPatterns = state.customPatterns ?: []
+        def nextSlot = findNextEmptyPatternSlot(customPatterns)
+        
+        if (nextSlot == -1) {
+            log.error "No empty slots available (maximum 20 custom patterns)"
+            return
+        }
+        
+        // Store pattern
+        if (customPatterns.size() < nextSlot) {
+            // Extend list if needed
+            while (customPatterns.size() < nextSlot) {
+                customPatterns.add(null)
+            }
+        }
+        customPatterns[nextSlot - 1] = [
+            name: patternName,
+            urlParams: urlParams
+        ]
+        state.customPatterns = customPatterns
+        
+        log.info "Stored pattern '${patternName}' in slot ${nextSlot}"
+        
+        // Update effect list
+        def effectList = buildEffectList()
+        sendEvent(name: "effectList", value: effectList)
+    }
+}
+
+
+// Build pattern URL parameters from zone data returned by getController
+def buildPatternParamsFromZoneData(Map zoneData) {
+    def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
+    if (pattern == "off") return null
+    
+    // Extract parameters from zone data
+    def params = [
+        patternType: pattern,
+        zones: zoneNumber,
+        num_zones: 1,
+        num_colors: zoneData.numberOfColors ?: 1,
+        colors: zoneData.colorStr ? parseColorStr(zoneData.colorStr) : "255,255,255",
+        direction: zoneData.direction ?: "F",
+        speed: zoneData.speed ?: 0,
+        gap: zoneData.gap ?: 0,
+        other: zoneData.other ?: 0,
+        pause: 0
+    ]
+    
+    return params
+}
+
+// Parse colorStr format (e.g., "255&242&194&255&242&194...") to comma-separated RGB
+def parseColorStr(String colorStr) {
+    if (!colorStr || colorStr.trim() == "") return "255,255,255"
+    
+    // colorStr format: "R&G&B&R&G&B&..."
+    def parts = colorStr.split("&")
+    def colors = []
+    for (int i = 0; i < parts.size(); i += 3) {
+        if (i + 2 < parts.size()) {
+            colors.add("${parts[i]},${parts[i+1]},${parts[i+2]}")
+        }
+    }
+    return colors.join(",")
+}
+
+// Find next empty slot in custom patterns list
+def findNextEmptyPatternSlot(List customPatterns) {
+    for (int i = 0; i < 20; i++) {
+        if (i >= customPatterns.size() || customPatterns[i] == null) {
+            return i + 1  // Return 1-based slot number
+        }
+    }
+    return -1  // No empty slots
+}
+
+// Migrate old settings-based custom patterns to state-based storage (one-time)
+def migrateOldCustomPatterns() {
+    // Check if migration is needed (old patterns in settings, none in state)
+    if (state.customPatterns && state.customPatterns.size() > 0) {
+        return  // Already migrated
+    }
+    
+    def customPatterns = []
+    def migrated = false
+    
+    // Check for old settings-based patterns
+    for (int i = 1; i <= 20; i++) {
+        def name = settings."customPattern${i}Name"
+        if (name && name.trim()) {
+            // Migrate old pattern - use pattern name as patternType (minimal params)
+            customPatterns.add([
+                name: name.trim(),
+                urlParams: [
+                    patternType: name.trim(),
+                    zones: zoneNumber,
+                    num_zones: 1,
+                    num_colors: 1,
+                    colors: "255,255,255",
+                    direction: "F",
+                    speed: 0,
+                    gap: 0,
+                    other: 0,
+                    pause: 0
+                ]
+            ])
+            migrated = true
+        }
+    }
+    
+    if (migrated) {
+        state.customPatterns = customPatterns
+        log.info "Migrated ${customPatterns.size()} custom patterns from settings to state"
+    }
+}
+
 def getEffectList() {
     // Return sorted list for Simple Automation Rules dropdown
     return buildEffectList()
@@ -461,13 +639,11 @@ def buildEffectList() {
     def customList = []
     def predefinedList = []
     
-    // Add custom patterns FIRST (if names are set) - handle null settings during metadata parsing
-    if (settings) {
-        for (int i = 1; i <= 20; i++) {
-            def name = settings."customPattern${i}Name"
-            if (name && name.trim()) {
-                customList.add(name.trim())
-            }
+    // Add custom patterns from state (stored patterns)
+    def customPatterns = state.customPatterns ?: []
+    customPatterns.each { pattern ->
+        if (pattern && pattern.name) {
+            customList.add(pattern.name)
         }
     }
     
@@ -484,26 +660,24 @@ def buildEffectList() {
     return result
 }
 
-// Build custom pattern options for enum dropdown (only custom patterns from settings)
+// Build custom pattern options for enum dropdown (only custom patterns from state)
 def getCustomPatternOptions() {
     def options = [:]
     
     // Add empty option first
     options[""] = "-- Select Custom Pattern --"
     
-    // Custom patterns from settings (if available during metadata parsing)
+    // Custom patterns from state (stored patterns)
     def customPatterns = []
     try {
-        if (settings) {
-            for (int i = 1; i <= 20; i++) {
-                def name = settings."customPattern${i}Name"
-                if (name && name.trim()) {
-                    customPatterns.add(name.trim())
-                }
+        def storedPatterns = state.customPatterns ?: []
+        storedPatterns.each { pattern ->
+            if (pattern && pattern.name) {
+                customPatterns.add(pattern.name)
             }
         }
     } catch (Exception e) {
-        // settings not available during metadata parsing - that's OK
+        // state not available during metadata parsing - that's OK
     }
     
     // Add custom patterns (sorted)
@@ -524,34 +698,17 @@ def getPatternUrl(String effectName) {
         return "http://${controllerIP}/${url}"
     }
     
-    // Check custom patterns - use pattern name as patternType
-    for (int i = 1; i <= 20; i++) {
-        def customName = settings."customPattern${i}Name"
-        if (customName && customName.trim() == effectName) {
-            // Use the pattern name as patternType - controller has pattern settings stored
-            return buildPatternUrl(customName.trim())
-        }
+    // Check custom patterns from state
+    def customPatterns = state.customPatterns ?: []
+    def customPattern = customPatterns.find { it && it.name == effectName }
+    if (customPattern && customPattern.urlParams) {
+        // Use stored URL parameters to build command URL
+        def urlParams = customPattern.urlParams.clone()
+        urlParams.zones = zoneNumber  // Ensure zone number is current
+        return buildCommandUrl(urlParams)
     }
     
     return null
-}
-
-// Build URL for pattern (uses pattern name as patternType - controller has settings stored)
-def buildPatternUrl(String patternName) {
-    // Use minimal parameters - controller uses its stored settings for the pattern
-    def url = buildCommandUrl([
-        patternType: patternName,
-        zones: zoneNumber,
-        num_zones: 1,
-        num_colors: 1,
-        colors: "255,255,255",  // Placeholder - controller uses stored pattern settings
-        direction: "F",
-        speed: 0,
-        gap: 0,
-        other: 0,
-        pause: 0
-    ])
-    return url
 }
 
 // HTTP Communication
@@ -864,34 +1021,77 @@ def fetchZoneData(Closure callback) {
             if (response.status == 200) {
                 def zones = response.data
                 
+                // Debug: Log raw response data
+                log.debug "=== REFRESH/POLL RESPONSE DEBUG ==="
+                log.debug "Response status: ${response.status}"
+                log.debug "Response data type: ${zones?.getClass()?.name ?: 'null'}"
+                log.debug "Response data (raw): ${zones?.toString()}"
+                
                 // If zones is already a List, use it directly
                 if (zones instanceof List) {
+                    log.debug "Response is already a List with ${zones.size()} zones"
+                    log.debug "Full zones array: ${zones}"
+                    
                     def zoneData = zones.find { 
                         def zoneNum = it.num
                         zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
                     }
+                    
+                    if (zoneData) {
+                        log.debug "Found zone ${zoneNumber} data: ${zoneData}"
+                        log.debug "Zone data keys: ${zoneData.keySet()}"
+                        log.debug "Zone pattern field: '${zoneData.pattern}'"
+                        log.debug "Zone patternType field: '${zoneData.patternType}'"
+                        log.debug "Zone isOn field: ${zoneData.isOn}"
+                        log.debug "Zone enabled field: ${zoneData.enabled}"
+                        log.debug "Zone name field: '${zoneData.name}'"
+                        log.debug "=== END RESPONSE DEBUG ==="
+                    } else {
+                        log.debug "Zone ${zoneNumber} not found in response"
+                        log.debug "Available zones: ${zones.collect { it.num }}"
+                        log.debug "=== END RESPONSE DEBUG ==="
+                    }
+                    
                     if (callback) callback(zoneData)
                     return
                 }
                 
                 // If it's a String, parse it as JSON
                 if (zones instanceof String) {
+                    log.debug "Response is a String, parsing JSON..."
+                    log.debug "String content: ${zones}"
                     try {
                         zones = new groovy.json.JsonSlurper().parseText(zones)
-                        logDebug "Successfully parsed JSON string to List"
+                        log.debug "Successfully parsed JSON string to List"
                         
                         if (zones instanceof List) {
+                            log.debug "Parsed List with ${zones.size()} zones: ${zones}"
                             def zoneData = zones.find { 
                                 def zoneNum = it.num
                                 zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
                             }
+                            
+                            if (zoneData) {
+                                log.debug "Found zone ${zoneNumber} data: ${zoneData}"
+                                log.debug "Zone data keys: ${zoneData.keySet()}"
+                                log.debug "Zone pattern field: '${zoneData.pattern}'"
+                                log.debug "Zone patternType field: '${zoneData.patternType}'"
+                                log.debug "Zone isOn field: ${zoneData.isOn}"
+                                log.debug "=== END RESPONSE DEBUG ==="
+                            } else {
+                                log.debug "Zone ${zoneNumber} not found in parsed response"
+                                log.debug "=== END RESPONSE DEBUG ==="
+                            }
+                            
                             if (callback) callback(zoneData)
                         } else {
-                            log.error "Parsed JSON string but result is not a List"
+                            log.error "Parsed JSON string but result is not a List: ${zones}"
+                            log.debug "=== END RESPONSE DEBUG ==="
                             if (callback) callback(null)
                         }
                     } catch (Exception e) {
                         log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
+                        log.debug "=== END RESPONSE DEBUG ==="
                         if (callback) callback(null)
                     }
                     return
@@ -980,9 +1180,25 @@ def buildCommandUrl(Map params) {
 }
 
 def updateZoneState(Map zoneData) {
+    if (!zoneData) {
+        log.debug "updateZoneState called with null zoneData"
+        return
+    }
+    
+    log.debug "=== UPDATE ZONE STATE DEBUG ==="
+    log.debug "Raw zoneData: ${zoneData}"
+    log.debug "zoneData keys: ${zoneData.keySet()}"
+    log.debug "zoneData.pattern: '${zoneData.pattern}'"
+    log.debug "zoneData.patternType: '${zoneData.patternType}'"
+    log.debug "zoneData.isOn: ${zoneData.isOn}"
+    
     // Extract pattern - handle different possible field names
     def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
     def isOn = pattern != "off" && pattern != null && pattern.toString().trim() != ""
+    
+    log.debug "Extracted pattern: '${pattern}'"
+    log.debug "Calculated isOn: ${isOn}"
+    log.debug "Pattern comparison: pattern='${pattern}', pattern != 'off' = ${pattern != 'off'}, pattern != null = ${pattern != null}, pattern.trim() != '' = ${pattern?.toString()?.trim() != ''}"
     
     logDebug "Updating zone state - pattern: '${pattern}', isOn: ${isOn}"
     
@@ -991,10 +1207,12 @@ def updateZoneState(Map zoneData) {
     if (isOn && pattern != "custom") {
         // Try to match pattern to effect name
         def effectName = findEffectName(pattern.toString())
+        log.debug "Effect name lookup for pattern '${pattern}': ${effectName ?: 'not found'}"
         if (effectName) {
             sendEvent(name: "effectName", value: effectName)
         }
     }
+    log.debug "=== END UPDATE ZONE STATE DEBUG ==="
 }
 
 def findEffectName(String patternType) {
