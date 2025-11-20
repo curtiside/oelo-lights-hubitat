@@ -31,7 +31,7 @@
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
  * @author Curtis Ide
- * @version 0.6.13
+ * @version 0.6.14
  */
 
 metadata {
@@ -119,7 +119,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.13"
+    def driverVersion = "0.6.14"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -275,46 +275,56 @@ def getEffectList() {
     return buildEffectList()
 }
 
-// Build effect list including predefined, custom, and discovered patterns
+// Build effect list including custom patterns first, then predefined, then discovered
 def buildEffectList() {
-    def list = []
+    def customList = []
+    def predefinedList = []
+    def discoveredList = []
     
-    // Add predefined patterns
-    if (PATTERNS) {
-        list.addAll(PATTERNS.keySet())
-    }
-    
-    // Add custom patterns (if names are set) - handle null settings during metadata parsing
+    // Add custom patterns FIRST (if names are set) - handle null settings during metadata parsing
     if (settings) {
         for (int i = 1; i <= 6; i++) {
             def name = settings."customPattern${i}Name"
             if (name && name.trim()) {
-                list.add(name.trim())
+                customList.add(name.trim())
             }
         }
+    }
+    
+    // Add predefined patterns from PATTERNS map
+    if (PATTERNS) {
+        predefinedList.addAll(PATTERNS.keySet())
     }
     
     // Add discovered patterns - handle null state during metadata parsing
     if (state && state.discoveredPatterns && state.discoveredPatterns.size() > 0) {
         state.discoveredPatterns.each { pattern ->
-            if (pattern && !list.contains(pattern)) {
-                list.add(pattern)
+            if (pattern && !customList.contains(pattern) && !predefinedList.contains(pattern)) {
+                discoveredList.add(pattern)
             }
         }
     }
     
-    return list.sort()
+    // Combine: custom first (sorted), then predefined (sorted), then discovered (sorted)
+    def result = []
+    result.addAll(customList.sort())
+    result.addAll(predefinedList.sort())
+    result.addAll(discoveredList.sort())
+    
+    return result
 }
 
-// Build pattern options for enum dropdown (combines custom + discovered patterns)
+// Build pattern options for enum dropdown (custom patterns first, then predefined, then discovered)
 def getPatternOptions() {
     def options = [:]
-    def patterns = buildEffectList()
     
     // Add empty option first
     options[""] = "-- Select Pattern --"
     
-    // Add all patterns
+    // Build list (custom first, then predefined, then discovered)
+    def patterns = buildEffectList()
+    
+    // Add all patterns in order
     patterns.each { pattern ->
         options[pattern] = pattern
     }
@@ -454,7 +464,7 @@ def verifyCommandState(data) {
     getCurrentZoneStateForVerification(commandUrl, attempt, maxRetries, delaySeconds, startTime)
 }
 
-// Get current zone state and compare with expected
+// Get current zone state and compare with expected (uses poll() logic via fetchZoneData)
 def getCurrentZoneStateForVerification(String commandUrl, int attempt, int maxRetries, int delaySeconds, long startTime) {
     if (!controllerIP) {
         log.error "Cannot verify: Controller IP not configured"
@@ -462,91 +472,59 @@ def getCurrentZoneStateForVerification(String commandUrl, int attempt, int maxRe
         return
     }
     
-    def url = "http://${controllerIP}/getController"
     logDebug "Getting zone state for verification (attempt ${attempt}/${maxRetries})"
     
-    try {
-        httpGet([
-            uri: url,
-            timeout: (commandTimeout ?: 10) * 1000
-        ]) { response ->
-            if (response.status == 200) {
-                def zones = response.data
-                
-                // Parse JSON if response.data is a string
-                if (zones instanceof String) {
-                    try {
-                        zones = new groovy.json.JsonSlurper().parseText(zones)
-                    } catch (Exception e) {
-                        log.error "Failed to parse JSON response for verification: ${e.message}"
-                        handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
-                        return
-                    }
-                }
-                
-                if (zones instanceof List) {
-                    def zoneData = zones.find { it.num == zoneNumber }
-                    if (zoneData) {
-                        def currentState = [
-                            pattern: zoneData.pattern ?: "off",
-                            isOff: (zoneData.pattern == "off")
-                        ]
-                        
-                        // Get expected state from stored state
-                        def expectedState = state.verificationExpectedState
-                        if (!expectedState) {
-                            // Try to parse from command URL
-                            expectedState = parseCommandExpectation(commandUrl)
-                        }
-                        
-                        if (matchesExpectedState(currentState, expectedState)) {
-                            logDebug "Command verified successfully on attempt ${attempt}"
-                            sendEvent(name: "verificationStatus", value: "verified")
-                            updateStateFromVerification(currentState)
-                            // Clear verification state
-                            state.verificationCommandUrl = null
-                            state.verificationExpectedState = null
-                            return
-                        } else {
-                            logDebug "Verification attempt ${attempt}/${maxRetries} failed. Expected: ${expectedState}, Got: ${currentState}"
-                            
-                            // Schedule next attempt if not exceeded max retries
-                            if (attempt < maxRetries) {
-                                def nextAttempt = attempt + 1
-                                logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
-                                runIn(delaySeconds, "verifyCommandState", [data: [
-                                    commandUrl: commandUrl,
-                                    attempt: nextAttempt,
-                                    startTime: startTime
-                                ]])
-                            } else {
-                                log.warn "Command verification failed after ${maxRetries} attempts"
-                                sendEvent(name: "verificationStatus", value: "failed")
-                                // Clear verification state
-                                state.verificationCommandUrl = null
-                                state.verificationExpectedState = null
-                            }
-                        }
-                    } else {
-                        log.warn "Zone ${zoneNumber} not found in response for verification"
-                        handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
-                    }
-                } else {
-                    log.error "Invalid response format for verification: ${zones}"
-                    handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
-                }
+    // Use shared fetchZoneData function (same logic as poll())
+    fetchZoneData { zoneData ->
+        if (!zoneData) {
+            log.warn "Zone ${zoneNumber} not found in response for verification"
+            handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+            return
+        }
+        
+        def currentState = [
+            pattern: zoneData.pattern ?: "off",
+            isOff: (zoneData.pattern == "off")
+        ]
+        
+        // Get expected state from stored state
+        def expectedState = state.verificationExpectedState
+        if (!expectedState) {
+            // Try to parse from command URL
+            expectedState = parseCommandExpectation(commandUrl)
+        }
+        
+        if (matchesExpectedState(currentState, expectedState)) {
+            logDebug "Command verified successfully on attempt ${attempt}"
+            sendEvent(name: "verificationStatus", value: "verified")
+            updateStateFromVerification(currentState)
+            // Clear verification state
+            state.verificationCommandUrl = null
+            state.verificationExpectedState = null
+        } else {
+            logDebug "Verification attempt ${attempt}/${maxRetries} failed. Expected: ${expectedState}, Got: ${currentState}"
+            
+            // Schedule next attempt if not exceeded max retries
+            if (attempt < maxRetries) {
+                def nextAttempt = attempt + 1
+                logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
+                runIn(delaySeconds, "verifyCommandState", [data: [
+                    commandUrl: commandUrl,
+                    attempt: nextAttempt,
+                    startTime: startTime
+                ]])
             } else {
-                log.error "Poll failed with status: ${response.status} for verification"
-                handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+                log.warn "Command verification failed after ${maxRetries} attempts"
+                sendEvent(name: "verificationStatus", value: "failed")
+                // Clear verification state
+                state.verificationCommandUrl = null
+                state.verificationExpectedState = null
             }
         }
-    } catch (Exception e) {
-        log.error "Error getting zone state for verification: ${e.message}"
-        handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
     }
 }
 
-// Handle verification retry logic
+// Handle verification retry logic (orchestration only - uses verifyCommandState)
 def handleVerificationRetry(String commandUrl, int attempt, int maxRetries, int delaySeconds, long startTime) {
     if (attempt < maxRetries) {
         def nextAttempt = attempt + 1
@@ -691,14 +669,16 @@ def updateStateFromVerification(Map zoneState) {
     }
 }
 
-def poll() {
+// Shared function to fetch zone data from controller (used by poll() and verification)
+def fetchZoneData(Closure callback) {
     if (!controllerIP) {
-        log.error "Cannot poll: Controller IP not configured"
+        log.error "Cannot fetch zone data: Controller IP not configured"
+        if (callback) callback(null)
         return
     }
     
     def url = "http://${controllerIP}/getController"
-    logDebug "Polling: ${url}"
+    logDebug "Fetching zone data: ${url}"
     
     try {
         httpGet([
@@ -714,12 +694,7 @@ def poll() {
                         def zoneNum = it.num
                         zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
                     }
-                    if (zoneData) {
-                        logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
-                        updateZoneState(zoneData)
-                    } else {
-                        log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
-                    }
+                    if (callback) callback(zoneData)
                     return
                 }
                 
@@ -734,17 +709,14 @@ def poll() {
                                 def zoneNum = it.num
                                 zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
                             }
-                            if (zoneData) {
-                                logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
-                                updateZoneState(zoneData)
-                            } else {
-                                log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
-                            }
+                            if (callback) callback(zoneData)
                         } else {
                             log.error "Parsed JSON string but result is not a List"
+                            if (callback) callback(null)
                         }
                     } catch (Exception e) {
                         log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
+                        if (callback) callback(null)
                     }
                     return
                 }
@@ -762,14 +734,10 @@ def poll() {
                                 def zoneNum = it.num
                                 zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
                             }
-                            if (zoneData) {
-                                logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
-                                updateZoneState(zoneData)
-                            } else {
-                                log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
-                            }
+                            if (callback) callback(zoneData)
                         } else {
                             log.error "Parsed JSON from InputStream but result is not a List"
+                            if (callback) callback(null)
                         }
                         return
                     }
@@ -780,12 +748,34 @@ def poll() {
                 
                 // If it's something else, log what we got
                 log.error "Unexpected response.data type. Value: ${zones?.toString()?.take(200) ?: 'null'}"
+                if (callback) callback(null)
             } else {
-                log.error "Poll failed with status: ${response.status}"
+                log.error "Fetch zone data failed with status: ${response.status}"
+                if (callback) callback(null)
             }
         }
     } catch (Exception e) {
-        log.error "Poll failed: ${e.message}"
+        log.error "Fetch zone data failed: ${e.message}"
+        if (callback) callback(null)
+    }
+}
+
+def poll() {
+    if (!controllerIP) {
+        log.error "Cannot poll: Controller IP not configured"
+        return
+    }
+    
+    logDebug "Polling: http://${controllerIP}/getController"
+    
+    // Use shared fetchZoneData function
+    fetchZoneData { zoneData ->
+        if (zoneData) {
+            logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
+            updateZoneState(zoneData)
+        } else {
+            log.warn "Zone ${zoneNumber} not found in response"
+        }
     }
     
     // Schedule next poll if auto-polling enabled
@@ -940,14 +930,73 @@ def logDebug(String msg) {
 }
 
 // Pattern Definitions
-// TODO: Import from patterns.py or define inline
-// This is a subset - full list should be imported from patterns.py
+// Imported from patterns.groovy - all predefined patterns from Home Assistant integration
 
 final Map PATTERNS = [
+    "American Liberty: Marching with Red White and Blue": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "American Liberty: Standing with Red White and Blue": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
+    "Birthdays: Birthday Cake": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=14&colors=255,0,0,255,255,255,255,92,0,255,255,255,255,184,0,255,255,255,97,255,0,255,255,255,0,10,255,255,255,255,189,0,255,255,255,255,255,0,199,255,255,255,&direction=R&speed=20&gap=0&other=0&pause=0",
+    "Birthdays: Birthday Confetti": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=14&colors=255,0,0,255,255,255,255,92,0,255,255,255,255,184,0,255,255,255,97,255,0,255,255,255,0,10,255,255,255,255,189,0,255,255,255,255,255,0,199,255,255,255,&direction=R&speed=20&gap=0&other=0&pause=0",
+    "Canadian Strong: O Canada": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=8&colors=237,252,255,237,252,255,237,252,255,255,0,0,255,0,0,255,255,255,255,0,0,255,0,0,&direction=R&speed=20&gap=0&other=0&pause=0",
     "Christmas: Candy Cane Glimmer": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,255,0,0,255,255,255,255,0,0,&direction=R&speed=20&gap=0&other=0&pause=0",
     "Christmas: Candy Cane Lane": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,255,0,0,255,0,0,255,0,0,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Christmas: Christmas Glow": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,255,153,0,255,153,0,255,153,0,&direction=R&speed=2&gap=0&other=0&pause=0",
+    "Christmas: Christmas at Oelo": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=7&colors=26,213,255,26,213,255,26,213,255,26,213,255,26,213,255,255,34,0,255,34,0,&direction=R&speed=2&gap=0&other=0&pause=0",
+    "Christmas: Decorating the Christmas Tree": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=5&colors=0,219,11,0,219,11,0,219,11,255,153,0,255,255,255,&direction=R&speed=2&gap=0&other=0&pause=0",
+    "Christmas: Dreaming of a White Christmas": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=5&colors=238,252,255,237,252,255,237,252,255,0,0,0,0,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
+    "Christmas: Icicle Chase": "setPattern?patternType=chase&num_zones=1&zones={zone}&num_colors=3&colors=255,255,255,0,183,245,0,73,245,&direction=R&speed=5&gap=0&other=0&pause=0",
+    "Christmas: Icicle Shimmer": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,0,204,255,0,70,255,0,70,255,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Christmas: Icicle Stream": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,0,204,255,0,70,255,0,70,255,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Christmas: Saturnalia Christmas": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,255,255,255,255,255,255,255,255,0,255,47,0,255,47,0,255,47,255,0,0,255,0,0,255,0,0,&direction=R&speed=2&gap=0&other=0&pause=0",
+    "Christmas: The Grinch Stole Christmas": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=8&colors=15,255,0,15,255,0,15,255,0,15,255,0,255,0,0,255,0,0,255,255,255,255,255,255,&direction=R&speed=2&gap=0&other=0&pause=0",
+    "Cinco De Mayo: Furious Fiesta": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,0,255,0,0,255,0,0,255,0,&direction=R&speed=10&gap=0&other=0&pause=0",
+    "Cinco De Mayo: Mexican Spirit": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,0,255,0,0,255,0,0,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Cinco De Mayo: Salsa Line": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,0,255,0,0,255,0,0,255,0,&direction=R&speed=5&gap=0&other=0&pause=0",
+    "Day of the Dead: Calaveras Dash": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=4&colors=77,248,255,255,77,209,41,144,255,255,246,41,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Day of the Dead: Calaveras Shimmer": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=4&colors=40,255,200,255,40,200,40,120,255,255,246,40,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Day of the Dead: Marigold Breeze": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,138,0,255,138,0,255,34,0,255,34,0,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Day of the Dead: Sugar Skull Still": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,255,255,255,255,255,225,0,250,255,255,255,255,255,255,5,180,255,255,255,255,255,255,255,255,142,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Easter: Delicate Dance": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=213,50,255,213,50,255,213,50,255,50,255,184,50,255,184,50,255,184,255,149,50,255,149,50,255,149,50,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Easter: Pastel Unwind": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=144,50,255,144,50,255,144,50,255,213,50,255,213,50,255,213,50,255,80,205,255,80,205,255,80,205,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Election Day: A More Perfect Union": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,4,255,0,39,255,0,39,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Election Day: We The People": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Fathers Day: Fresh Cut Grass": "setPattern?patternType=sprinkle&num_zones=1&zones={zone}&num_colors=1&colors=7,82,0,&direction=R&speed=1&gap=1&other=0&pause=0",
+    "Fathers Day: Grilling Time": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Fourth of July: Fast Fireworks": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
+    "Fourth of July: Founders Endurance": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=3&colors=255,0,0,0,39,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Halloween: Candy Corn Glow": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=6&colors=255,215,0,255,155,0,255,64,0,255,54,0,255,74,0,255,255,255,&direction=R&speed=3&gap=0&other=0&pause=0",
     "Halloween: Goblin Delight": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,53,255,0,53,255,0,53,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Fourth of July: Fast Fireworks": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0"
-    // TODO: Add all patterns from patterns.py
+    "Halloween: Goblin Delight Trance": "setPattern?patternType=streak&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,53,255,0,53,255,0,53,255,0,&direction=R&speed=3&gap=0&other=0&pause=0",
+    "Halloween: Halloween Dancing Bash": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=3&colors=255,155,0,240,81,0,255,155,0,&direction=R&speed=3&gap=0&other=0&pause=0",
+    "Halloween: Hocus Pocus": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,255,85,0,255,85,0,255,85,0,&direction=R&speed=3&gap=0&other=0&pause=0",
+    "Halloween: Hocus Pocus Takeover": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,255,85,0,255,85,0,255,85,0,&direction=R&speed=3&gap=0&other=0&pause=0",
+    "Halloween: Pumpkin Patch": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=4&colors=255,54,0,255,64,0,0,28,2,0,0,0,&direction=R&speed=3&gap=0&other=0&pause=0",
+    "Hanukkah: Eight Days Of Lights": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,0,0,255,0,0,255,0,0,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Hanukkah: Hanukkah Glide": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,0,0,255,0,0,255,255,255,255,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Labor Day: Continued Progress": "setPattern?patternType=bolt&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Labor Day: United Strong": "setPattern?patternType=fade&num_zones=1&zones={zone}&num_colors=6&colors=255,0,0,0,0,0,255,255,255,0,0,0,0,0,255,0,0,0,&direction=R&speed=8&gap=0&other=0&pause=0",
+    "Memorial Day: In Honor Of Service": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Memorial Day: Unity Of Service": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=3&colors=255,0,0,0,0,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Mothers Day: Breakfast In Bed": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=100,20,255,100,20,255,100,20,255,230,20,255,230,20,255,230,20,255,20,205,255,20,205,255,20,205,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Mothers Day: Love For A Mother": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=2&colors=180,10,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Mothers Day: Twinkling Memories": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,10,228,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "New Years: Golden Shine": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,255,255,255,161,51,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "New Years: River of Gold": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,145,15,255,255,255,255,145,15,255,255,255,255,145,15,&direction=R&speed=5&gap=0&other=0&pause=0",
+    "New Years: Sliding Into the New Year": "setPattern?patternType=streak&num_zones=1&zones={zone}&num_colors=2&colors=255,255,255,255,145,15,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "New Years: Year of Change": "setPattern?patternType=fade&num_zones=1&zones={zone}&num_colors=3&colors=255,255,255,255,145,15,255,145,15,&direction=R&speed=5&gap=0&other=0&pause=0",
+    "Presidents Day: Flight Of The President": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Presidents Day: The Presidents March": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Pride: Split": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=6&colors=255,0,0,255,50,0,255,240,0,0,255,0,0,0,255,125,0,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Quinceanera: Perfectly Pink": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=6&colors=255,61,183,255,46,228,255,10,164,255,46,149,255,46,228,255,46,129,&direction=R&speed=9&gap=0&other=0&pause=0",
+    "Quinceanera: Twinkle Eyes": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,10,228,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Quinceanera: Vibrant Celebration": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=2&colors=180,10,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "St. Patricks Day: Follow The Rainbow": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=6&colors=255,0,5,255,50,0,255,230,0,63,255,0,0,136,255,100,0,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "St. Patricks Day: Sprinkle Of Dust": "setPattern?patternType=sprinkle&num_zones=1&zones={zone}&num_colors=2&colors=97,255,0,173,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Thanksgiving: Thanksgiving Apple Pie": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,31,0,255,31,0,255,31,0,255,94,0,255,94,0,255,94,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Thanksgiving: Thanksgiving Turkey": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=1&colors=255,94,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Valentines: Adorations Smile": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=3&colors=255,10,228,255,0,76,255,143,238,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Valentines: Cupids Twinkle": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,10,228,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Valentines: My Heart Is Yours": "setPattern?patternType=fade&num_zones=1&zones={zone}&num_colors=3&colors=255,10,228,255,255,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Valentines: Powerful Love": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=2&colors=180,10,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0"
 ]
 
