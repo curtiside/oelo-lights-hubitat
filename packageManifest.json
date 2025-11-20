@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.6.16",
+  "version": "0.6.17",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.6.16\n- Support for 6 zones as separate virtual devices\n- Commands: off, setSelectedPattern, refresh\n- Fixed syntax error from duplicate pattern definitions\n- Removed patterns.groovy file (patterns embedded in driver)\n- Cleaned up duplicate code",
+	"releaseNotes": "Oelo Lights Zone Driver v0.6.17\n- Removed pattern duplication - getPatternOptions() now accesses PATTERNS map directly\n- All 77 predefined patterns should now appear in dropdown along with custom patterns",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",

@@ -31,7 +31,7 @@
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
  * @author Curtis Ide
- * @version 0.6.16
+ * @version 0.6.17
  */
 
 // Pattern Definitions - Must be defined before metadata block for getPatternOptions() to access
@@ -377,16 +377,21 @@ def getPatternOptions() {
     // During metadata parsing, directly access PATTERNS and settings
     // Custom patterns first (if settings available)
     def customPatterns = []
-    if (settings) {
-        for (int i = 1; i <= 6; i++) {
-            def name = settings."customPattern${i}Name"
-            if (name && name.trim()) {
-                customPatterns.add(name.trim())
+    try {
+        if (settings) {
+            for (int i = 1; i <= 6; i++) {
+                def name = settings."customPattern${i}Name"
+                if (name && name.trim()) {
+                    customPatterns.add(name.trim())
+                }
             }
         }
+    } catch (Exception e) {
+        // settings not available during metadata parsing - that's OK
     }
     
     // Predefined patterns from PATTERNS map
+    // PATTERNS is defined before metadata block, so it should be accessible
     def predefinedPatterns = []
     if (PATTERNS) {
         predefinedPatterns.addAll(PATTERNS.keySet())
