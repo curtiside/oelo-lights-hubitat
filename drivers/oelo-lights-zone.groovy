@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.0
+ * @version 0.6.1
  */
 
 metadata {
@@ -115,7 +115,7 @@ def initialize() {
     sendEvent(name: "controllerIP", value: controllerIP)
     
     // Set driver version in state and attribute
-    def driverVersion = "0.6.0"
+    def driverVersion = "0.6.1"
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
     
@@ -238,16 +238,18 @@ def buildEffectList() {
         list.addAll(PATTERNS.keySet())
     }
     
-    // Add custom patterns (if names are set)
-    for (int i = 1; i <= 6; i++) {
-        def name = settings."customPattern${i}Name"
-        if (name && name.trim()) {
-            list.add(name.trim())
+    // Add custom patterns (if names are set) - handle null settings during metadata parsing
+    if (settings) {
+        for (int i = 1; i <= 6; i++) {
+            def name = settings."customPattern${i}Name"
+            if (name && name.trim()) {
+                list.add(name.trim())
+            }
         }
     }
     
-    // Add discovered patterns
-    if (state.discoveredPatterns && state.discoveredPatterns.size() > 0) {
+    // Add discovered patterns - handle null state during metadata parsing
+    if (state && state.discoveredPatterns && state.discoveredPatterns.size() > 0) {
         state.discoveredPatterns.each { pattern ->
             if (pattern && !list.contains(pattern)) {
                 list.add(pattern)

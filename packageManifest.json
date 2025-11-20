@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.5.0",
+	"version": "0.6.1",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "debug version of Oelo Lights Zone Driver\n- Support for 6 zones independently\n- 60+ predefined patterns\n- 20 custom patterns\n- Simple Automation Rules integration\n- Command verification",
+	"releaseNotes": "Oelo Lights Zone Driver v0.6.1\n- Support for 6 zones independently\n- Simplified commands: off, setSelectedPattern, refresh\n- Pattern discovery from controller polling\n- Commands tab with pattern dropdown\n- Fixed null settings error in metadata parsing",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
