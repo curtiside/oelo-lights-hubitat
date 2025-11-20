@@ -19,9 +19,6 @@
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
         capability "Switch"
-        capability "SwitchLevel"
-        capability "ColorControl"
-        capability "LightEffects"
         capability "Refresh"
         
         // Custom attributes
@@ -31,6 +28,9 @@ metadata {
         attribute "effectList", "string"
         attribute "verificationStatus", "string"
         attribute "discoveredPatterns", "string"
+        
+        // Custom command for pattern selection
+        command "setSelectedPattern"
     }
     
     preferences {
@@ -64,6 +64,10 @@ metadata {
             input name: "logEnable", type: "bool", title: "Enable Debug Logging", defaultValue: false, description: "Enable detailed logging"
             input name: "commandTimeout", type: "number", title: "Command Timeout (seconds)", range: "5..30", defaultValue: 10, description: "HTTP request timeout"
         }
+        
+        section("Commands") {
+            input name: "selectedPattern", type: "enum", title: "Select Pattern", options: getPatternOptions(), required: false, description: "Choose a pattern to set"
+        }
     }
 }
 
@@ -84,6 +88,9 @@ def updated() {
     def predefinedCount = PATTERNS ? PATTERNS.size() : 0
     def customCount = effectList.size() - predefinedCount
     log.info "Effect list updated: ${effectList.size()} patterns available (${predefinedCount} predefined + ${customCount} custom)"
+    
+    // Update discovered patterns attribute
+    updateDiscoveredPatternsAttribute()
 }
 
 def initialize() {
@@ -157,28 +164,6 @@ def refresh() {
 
 // Capability: Switch
 
-def on() {
-    logDebug "Turning zone ${zoneNumber} ON"
-    
-    // Check for last pattern/effect
-    def lastEffect = device.currentValue("effectName")
-    def lastCmd = device.currentValue("lastCommand")
-    
-    if (lastEffect && lastCmd) {
-        // Replay last pattern
-        logDebug "Replaying last pattern: ${lastEffect}"
-        sendCommand(lastCmd)
-    } else if (lastCmd) {
-        // Replay last command (could be custom color)
-        logDebug "Replaying last command"
-        sendCommand(lastCmd)
-    } else {
-        // Default: solid white
-        logDebug "No previous pattern, using default white"
-        setColor([hue: 0, saturation: 0, level: 100])
-    }
-}
-
 def off() {
     logDebug "Turning zone ${zoneNumber} OFF"
     
@@ -197,98 +182,11 @@ def off() {
     
     def success = sendCommand(url)
     if (success) {
-        // Don't update lastCommand - we want to keep the last pattern for next on()
         sendEvent(name: "switch", value: "off")
     }
 }
 
-// Capability: SwitchLevel
-
-def setLevel(level, duration = null) {
-    logDebug "Setting level to ${level}%"
-    
-    // Get current color
-    def hue = toIntSafe(device.currentValue("hue"), 0)
-    def saturation = toIntSafe(device.currentValue("saturation"), 0)
-    level = toIntSafe(level, 100)
-    
-    // Convert to RGB and scale by brightness
-    def rgb = hsvToRgb(hue, saturation, level)
-    
-    setColor([red: rgb[0], green: rgb[1], blue: rgb[2]])
-}
-
-// Capability: ColorControl
-
-def setColor(Map colorMap) {
-    logDebug "Setting color: ${colorMap}"
-    
-    def red = colorMap.red ?: colorMap.r ?: 255
-    def green = colorMap.green ?: colorMap.g ?: 255
-    def blue = colorMap.blue ?: colorMap.b ?: 255
-    
-    // If HSV provided, convert to RGB
-    if (colorMap.hue != null || colorMap.saturation != null || colorMap.level != null) {
-        def h = toIntSafe(colorMap.hue ?: device.currentValue("hue"), 0)
-        def s = toIntSafe(colorMap.saturation ?: device.currentValue("saturation"), 0)
-        def v = toIntSafe(colorMap.level ?: device.currentValue("level"), 100)
-        
-        def rgb = hsvToRgb(h, s, v)
-        red = rgb[0]
-        green = rgb[1]
-        blue = rgb[2]
-    }
-    
-    // Clamp values
-    red = Math.max(0, Math.min(255, red))
-    green = Math.max(0, Math.min(255, green))
-    blue = Math.max(0, Math.min(255, blue))
-    
-    def url = buildCommandUrl([
-        patternType: "custom",
-        zones: zoneNumber,
-        num_zones: 1,
-        num_colors: 1,
-        colors: "${red},${green},${blue}",
-        direction: "F",
-        speed: 0,
-        gap: 0,
-        other: 0,
-        pause: 0
-    ])
-    
-    // Send command and store for future on() calls
-    def success = sendCommand(url)
-    if (success) {
-        sendEvent(name: "lastCommand", value: url)
-        sendEvent(name: "effectName", value: null) // Clear effect name when using custom color
-        sendEvent(name: "switch", value: "on")
-    }
-    
-    // Update attributes
-    def hsv = rgbToHsv(red, green, blue)
-    sendEvent(name: "hue", value: hsv[0])
-    sendEvent(name: "saturation", value: hsv[1])
-    sendEvent(name: "level", value: hsv[2])
-    sendEvent(name: "color", value: [hue: hsv[0], saturation: hsv[1], level: hsv[2]])
-}
-
-def setHue(hue) {
-    def saturation = toIntSafe(device.currentValue("saturation"), 0)
-    def level = toIntSafe(device.currentValue("level"), 100)
-    hue = toIntSafe(hue, 0)
-    setColor([hue: hue, saturation: saturation, level: level])
-}
-
-def setSaturation(saturation) {
-    def hue = toIntSafe(device.currentValue("hue"), 0)
-    def level = toIntSafe(device.currentValue("level"), 100)
-    saturation = toIntSafe(saturation, 0)
-    setColor([hue: hue, saturation: saturation, level: level])
-}
-
-// Capability: LightEffects
-
+// Internal function: Set effect (used by setSelectedPattern command)
 def setEffect(String effectName) {
     logDebug "Setting effect: ${effectName}"
     
@@ -308,12 +206,24 @@ def setEffect(String effectName) {
     }
 }
 
+// Custom command: Set pattern from dropdown selection
+def setSelectedPattern() {
+    def patternName = settings.selectedPattern
+    if (!patternName || patternName == "") {
+        log.warn "No pattern selected. Please select a pattern from the dropdown first."
+        return
+    }
+    
+    log.info "Setting pattern from Commands dropdown: ${patternName}"
+    setEffect(patternName)
+}
+
 def getEffectList() {
     // Return sorted list for Simple Automation Rules dropdown
     return buildEffectList()
 }
 
-// Build effect list including predefined and custom patterns
+// Build effect list including predefined, custom, and discovered patterns
 def buildEffectList() {
     def list = []
     
@@ -330,7 +240,32 @@ def buildEffectList() {
         }
     }
     
+    // Add discovered patterns
+    if (state.discoveredPatterns && state.discoveredPatterns.size() > 0) {
+        state.discoveredPatterns.each { pattern ->
+            if (pattern && !list.contains(pattern)) {
+                list.add(pattern)
+            }
+        }
+    }
+    
     return list.sort()
+}
+
+// Build pattern options for enum dropdown (combines custom + discovered patterns)
+def getPatternOptions() {
+    def options = [:]
+    def patterns = buildEffectList()
+    
+    // Add empty option first
+    options[""] = "-- Select Pattern --"
+    
+    // Add all patterns
+    patterns.each { pattern ->
+        options[pattern] = pattern
+    }
+    
+    return options
 }
 
 // Get pattern URL - handles both predefined and custom patterns
@@ -350,6 +285,12 @@ def getPatternUrl(String effectName) {
             // Use the pattern name as patternType - controller has pattern settings stored
             return buildPatternUrl(customName.trim())
         }
+    }
+    
+    // Check discovered patterns - use pattern name as patternType
+    if (state.discoveredPatterns && state.discoveredPatterns.contains(effectName)) {
+        // Use the pattern name as patternType - controller has pattern settings stored
+        return buildPatternUrl(effectName)
     }
     
     return null
