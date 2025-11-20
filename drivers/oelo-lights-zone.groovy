@@ -115,7 +115,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.7.1
+ * @version 0.7.2
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -267,6 +267,7 @@ def installed() {
 }
 
 def updated() {
+    log.warn "updated() preference action called"
     log.info "Oelo Lights Zone driver updated"
     // Set driver version immediately
     setDriverVersion()
@@ -276,6 +277,7 @@ def updated() {
         def oldPatternName = settings.renamePattern
         def newPatternName = settings.newPatternName.trim()
         
+        log.warn "Preference action: Renaming custom pattern '${oldPatternName}' to '${newPatternName}'"
         log.info "Renaming custom pattern: '${oldPatternName}' to '${newPatternName}'"
         
         def customPatterns = state.customPatterns ?: []
@@ -306,6 +308,7 @@ def updated() {
     // Handle pattern deletion if deletePattern preference was set
     if (settings.deletePattern && settings.deletePattern != "") {
         def patternName = settings.deletePattern
+        log.warn "Preference action: Deleting custom pattern '${patternName}'"
         log.info "Deleting custom pattern: ${patternName}"
         
         def customPatterns = state.customPatterns ?: []
@@ -342,7 +345,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.7.1"
+    def driverVersion = "0.7.2"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -354,6 +357,15 @@ def setDriverVersion() {
 def initialize() {
     // Set driver version (in case initialize is called directly)
     setDriverVersion()
+    
+    // Store PATTERNS in state so it's accessible at runtime (same approach as custom patterns)
+    // PATTERNS works in metadata block but not in functions at runtime, so store it in state
+    if (PATTERNS && !state.patternsMap) {
+        state.patternsMap = PATTERNS
+        log.debug "Stored PATTERNS map in state (${PATTERNS.size()} patterns)"
+    } else if (!state.patternsMap) {
+        log.warn "PATTERNS not accessible during initialization - standard patterns may not work"
+    }
     
     // Initialize custom patterns storage if not exists
     if (!state.customPatterns) {
@@ -421,6 +433,7 @@ def uninstalled() {
 // Capability: Refresh
 
 def refresh() {
+    log.warn "refresh() command called"
     log.info "Refresh requested for zone ${zoneNumber}"
     
     // Ensure driver version is current (in case code was updated)
@@ -441,6 +454,7 @@ def refresh() {
 // Custom command: Turn off lights
 
 def off() {
+    log.warn "off() command called"
     logDebug "Turning zone ${zoneNumber} OFF"
     
     def url = buildCommandUrl([
@@ -484,6 +498,7 @@ def setEffect(String effectName) {
 
 // Custom command: Set custom pattern from dropdown selection (Preferences)
 def setCustomPattern() {
+    log.warn "setCustomPattern() command called"
     def patternName = settings.selectedPattern
     if (!patternName || patternName == "") {
         log.warn "No custom pattern selected. Please select a custom pattern from Preferences → Custom Pattern Selection section first."
@@ -496,6 +511,7 @@ def setCustomPattern() {
 
 // Custom command: Set standard/predefined pattern from dropdown selection (Preferences)
 def setStandardPattern() {
+    log.warn "setStandardPattern() command called"
     def patternName = settings.selectedStandardPattern
     if (!patternName || patternName == "") {
         log.warn "No standard pattern selected. Please select a standard pattern from Preferences → Standard Pattern Selection section first."
@@ -508,6 +524,7 @@ def setStandardPattern() {
 
 // Custom command: Get current pattern from controller and store it
 def getPattern() {
+    log.warn "getPattern() command called"
     log.info "=== GET PATTERN COMMAND STARTED ==="
     log.debug "[Step 1] Checking controller IP configuration..."
     
@@ -524,7 +541,7 @@ def getPattern() {
         log.debug "[Step 2] fetchZoneData callback received"
         
         if (!zoneData) {
-            log.error "[FAILED] Step 2: Could not retrieve zone data from controller"
+            log.error "[FAILED] Step 2: Could not retrieve zone data from controller (IP: ${controllerIP}, Zone: ${zoneNumber})"
             log.debug "=== GET PATTERN COMMAND FAILED ==="
             return
         }
@@ -789,9 +806,10 @@ def buildEffectList() {
         }
     }
     
-    // Add predefined patterns from PATTERNS map
-    if (PATTERNS) {
-        predefinedList.addAll(PATTERNS.keySet())
+    // Add predefined patterns from state (same approach as custom patterns)
+    def patternsMap = state.patternsMap
+    if (patternsMap) {
+        predefinedList.addAll(patternsMap.keySet())
     }
     
     // Combine: custom first (sorted), then predefined (sorted)
@@ -832,12 +850,23 @@ def getCustomPatternOptions() {
 
 // Get pattern URL - handles both predefined and custom patterns
 def getPatternUrl(String effectName) {
-    // Check predefined patterns first
-    def pattern = PATTERNS ? PATTERNS[effectName] : null
-    if (pattern) {
-        // Replace {zone} placeholder
-        def url = pattern.replace("{zone}", zoneNumber.toString())
-        return "http://${controllerIP}/${url}"
+    log.debug "getPatternUrl: Looking for effect '${effectName}'"
+    
+    // Check predefined patterns from state (same approach as custom patterns)
+    def patternsMap = state.patternsMap
+    if (patternsMap) {
+        log.debug "getPatternUrl: Checking state.patternsMap (${patternsMap.size()} patterns) for '${effectName}'"
+        def pattern = patternsMap[effectName]
+        if (pattern) {
+            log.debug "getPatternUrl: Found predefined pattern '${effectName}'"
+            // Replace {zone} placeholder
+            def url = pattern.replace("{zone}", zoneNumber.toString())
+            return "http://${controllerIP}/${url}"
+        } else {
+            log.debug "getPatternUrl: Pattern '${effectName}' not found in state.patternsMap"
+        }
+    } else {
+        log.warn "getPatternUrl: state.patternsMap is null - standard patterns not initialized. Try saving device preferences to trigger initialization."
     }
     
     // Check custom patterns from state
@@ -880,7 +909,22 @@ def sendCommand(String url) {
                 
                 return true
             } else {
-                log.warn "Unexpected response: status=${status}, text=${text}"
+                log.error "Command failed with HTTP status: ${status}"
+                // Log response body/data if available (controller may return error details)
+                if (response.data) {
+                    try {
+                        def errorData = response.data
+                        if (errorData instanceof String) {
+                            log.error "Controller error response: ${errorData}"
+                        } else if (errorData.text) {
+                            log.error "Controller error response: ${errorData.text}"
+                        } else {
+                            log.error "Controller error response: ${errorData.toString()}"
+                        }
+                    } catch (Exception e) {
+                        log.debug "Could not parse error response: ${e.message}"
+                    }
+                }
                 sendEvent(name: "verificationStatus", value: "error")
                 return false
             }
@@ -1154,12 +1198,15 @@ def fetchZoneData(Closure callback) {
     
     def url = "http://${controllerIP}/getController"
     logDebug "Fetching zone data: ${url}"
+    log.debug "HTTP request details: IP=${controllerIP}, timeout=${commandTimeout ?: 10}s"
     
     try {
         httpGet([
             uri: url,
-            timeout: (commandTimeout ?: 10) * 1000
+            timeout: (commandTimeout ?: 10) * 1000,
+            requestContentType: "application/json"
         ]) { response ->
+            log.debug "HTTP response received: status=${response.status}"
             if (response.status == 200) {
                 def zones = response.data
                 
@@ -1268,12 +1315,60 @@ def fetchZoneData(Closure callback) {
                 log.error "Unexpected response.data type. Value: ${zones?.toString()?.take(200) ?: 'null'}"
                 if (callback) callback(null)
             } else {
-                log.error "Fetch zone data failed with status: ${response.status}"
+                log.error "Fetch zone data failed with HTTP status: ${response.status}"
+                // Log response body/data if available (controller may return error details)
+                if (response.data) {
+                    try {
+                        def errorData = response.data
+                        if (errorData instanceof String) {
+                            log.error "Controller error response: ${errorData}"
+                        } else {
+                            log.error "Controller error response: ${errorData.toString()}"
+                        }
+                    } catch (Exception e) {
+                        log.debug "Could not parse error response: ${e.message}"
+                    }
+                }
                 if (callback) callback(null)
             }
         }
     } catch (Exception e) {
-        log.error "Fetch zone data failed: ${e.message}"
+        def errorMsg = e.message ?: e.toString()
+        
+        // Try to determine exception type without using getClass()
+        def exceptionType = "Exception"
+        def exceptionStr = e.toString()
+        // Parse class name from toString() which often includes it (e.g., "java.net.ConnectException: Connection refused")
+        if (exceptionStr.contains(":")) {
+            def parts = exceptionStr.split(":", 2)
+            if (parts.length > 0) {
+                exceptionType = parts[0].trim()
+                // Extract just the class name (last part after dots)
+                if (exceptionType.contains(".")) {
+                    exceptionType = exceptionType.substring(exceptionType.lastIndexOf(".") + 1)
+                }
+            }
+        }
+        
+        // Check for common exception types using string matching (instanceof with fully qualified names may not work)
+        if (exceptionStr.contains("Connection refused") || exceptionStr.contains("ConnectException")) {
+            exceptionType = "ConnectException"
+        } else if (exceptionStr.contains("timeout") || exceptionStr.contains("timed out") || exceptionStr.contains("SocketTimeoutException")) {
+            exceptionType = "SocketTimeoutException"
+        } else if (exceptionStr.contains("UnknownHostException")) {
+            exceptionType = "UnknownHostException"
+        } else if (exceptionStr.contains("IOException")) {
+            exceptionType = "IOException"
+        }
+        
+        log.error "Fetch zone data failed: ${errorMsg}"
+        log.error "Exception type: ${exceptionType}"
+        log.error "Controller IP configured: ${controllerIP}"
+        log.error "URL attempted: http://${controllerIP}/getController"
+        log.error "Full exception: ${exceptionStr}"
+        if (e.cause) {
+            log.error "Exception cause: ${e.cause.toString()}"
+        }
         if (callback) callback(null)
     }
 }
@@ -1365,9 +1460,10 @@ def updateZoneState(Map zoneData) {
 }
 
 def findEffectName(String patternType) {
-    // Try to find matching effect by patternType
-    if (!PATTERNS) return null
-    def match = PATTERNS.find { name, url -> url.contains("patternType=${patternType}") }
+    // Try to find matching effect by patternType from state (same approach as custom patterns)
+    def patternsMap = state.patternsMap
+    if (!patternsMap) return null
+    def match = patternsMap.find { name, url -> url.contains("patternType=${patternType}") }
     return match ? match.key : null
 }
 
