@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.2
+ * @version 0.6.3
  */
 
 metadata {
@@ -101,7 +101,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.2"
+    def driverVersion = "0.6.3"
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
     logDebug "Driver version set to: ${driverVersion}"
