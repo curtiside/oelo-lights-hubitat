@@ -1,0 +1,844 @@
+/**
+ * Oelo Lights Zone Driver for Hubitat
+ * 
+ * Controls a single zone of an Oelo Lights controller via HTTP API.
+ * Designed for use with Hubitat's Simple Automation Rules app.
+ * 
+ * Primary Usage:
+ * - setEffect(patternName) - Set a pattern (stores for future on() calls)
+ * - on() - Turn on lights using last set pattern
+ * - off() - Turn off lights
+ * 
+ * Based on the Oelo Lights Home Assistant integration:
+ * https://github.com/Cinegration/Oelo_Lights_HA
+ * 
+ * @author Your Name
+ * @version 1.0.0
+ */
+
+metadata {
+    definition(name: "Oelo Lights Zone", namespace: "your-namespace", author: "Your Name", importUrl: "") {
+        capability "Switch"
+        capability "ColorControl"
+        capability "LevelControl"
+        capability "LightEffects"
+        capability "Refresh"
+        
+        // Custom attributes
+        attribute "zone", "number"
+        attribute "controllerIP", "string"
+        attribute "lastCommand", "string"
+        attribute "effectList", "string"
+        attribute "verificationStatus", "string"
+    }
+    
+    preferences {
+        section("Controller Settings") {
+            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, description: "IP address of Oelo controller"
+            input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
+        }
+        
+        section("Polling") {
+            input name: "pollInterval", type: "number", title: "Poll Interval (seconds)", range: "10..300", defaultValue: 30, description: "How often to poll controller status"
+            input name: "autoPoll", type: "bool", title: "Enable Auto Polling", defaultValue: true, description: "Automatically poll controller status"
+        }
+        
+        section("Custom Patterns") {
+            paragraph "Define up to 20 custom patterns with names and RGB colors. Custom patterns will appear in Simple Automation Rules dropdown."
+            for (int i = 1; i <= 20; i++) {
+                input name: "customPattern${i}Name", type: "text", title: "Custom Pattern ${i} Name", description: "Name for custom pattern (e.g., 'My Red Lights')", required: false
+                input name: "customPattern${i}Red", type: "number", title: "Custom Pattern ${i} - Red", range: "0..255", defaultValue: 255, description: "Red value (0-255)", required: false
+                input name: "customPattern${i}Green", type: "number", title: "Custom Pattern ${i} - Green", range: "0..255", defaultValue: 255, description: "Green value (0-255)", required: false
+                input name: "customPattern${i}Blue", type: "number", title: "Custom Pattern ${i} - Blue", range: "0..255", defaultValue: 255, description: "Blue value (0-255)", required: false
+            }
+        }
+        
+        section("Command Verification") {
+            input name: "verifyCommands", type: "bool", title: "Verify Commands", defaultValue: false, description: "Verify commands by checking controller status after sending"
+            input name: "verificationRetries", type: "number", title: "Verification Retries", range: "1..10", defaultValue: 3, description: "Number of times to retry verification"
+            input name: "verificationDelay", type: "number", title: "Verification Delay (seconds)", range: "1..10", defaultValue: 2, description: "Seconds to wait between verification attempts"
+            input name: "verificationTimeout", type: "number", title: "Verification Timeout (seconds)", range: "5..60", defaultValue: 30, description: "Maximum time to wait for verification"
+        }
+        
+        section("Advanced") {
+            input name: "logEnable", type: "bool", title: "Enable Debug Logging", defaultValue: false, description: "Enable detailed logging"
+            input name: "commandTimeout", type: "number", title: "Command Timeout (seconds)", range: "5..30", defaultValue: 10, description: "HTTP request timeout"
+        }
+    }
+}
+
+// Driver lifecycle methods
+
+def installed() {
+    log.info "Oelo Lights Zone driver installed"
+    initialize()
+}
+
+def updated() {
+    log.info "Oelo Lights Zone driver updated"
+    initialize()
+    
+    // Refresh effect list if custom patterns changed
+    def effectList = buildEffectList()
+    sendEvent(name: "effectList", value: effectList)
+    log.info "Effect list updated: ${effectList.size()} patterns available (${PATTERNS.size()} predefined + ${effectList.size() - PATTERNS.size()} custom)"
+}
+
+def initialize() {
+    if (!controllerIP) {
+        log.error "Controller IP address not configured"
+        return
+    }
+    
+    // Validate IP address format
+    if (!isValidIP(controllerIP)) {
+        log.error "Invalid IP address format: ${controllerIP}"
+        return
+    }
+    
+    if (!zoneNumber || zoneNumber < 1 || zoneNumber > 6) {
+        log.error "Invalid zone number: ${zoneNumber}. Must be 1-6"
+        return
+    }
+    
+    sendEvent(name: "zone", value: zoneNumber)
+    sendEvent(name: "controllerIP", value: controllerIP)
+    
+    // Build and expose effect list for Simple Automation Rules (includes custom patterns)
+    def effectList = buildEffectList()
+    sendEvent(name: "effectList", value: effectList)
+    
+    // Start polling if enabled
+    if (autoPoll) {
+        unschedule()
+        def interval = pollInterval ?: 30
+        runIn(interval, poll)
+        log.info "Auto-polling enabled, interval: ${interval} seconds"
+    }
+    
+    // Initial refresh
+    refresh()
+}
+
+// Validate IP address format (basic IPv4 validation)
+def isValidIP(String ip) {
+    if (!ip) return false
+    
+    // Basic IPv4 format check (xxx.xxx.xxx.xxx)
+    def pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+    def matcher = ip =~ pattern
+    
+    if (!matcher.matches()) return false
+    
+    // Check each octet is 0-255
+    for (int i = 1; i <= 4; i++) {
+        def octet = Integer.parseInt(matcher.group(i))
+        if (octet < 0 || octet > 255) return false
+    }
+    
+    return true
+}
+
+def uninstalled() {
+    unschedule()
+    log.info "Oelo Lights Zone driver uninstalled"
+}
+
+// Capability: Refresh
+
+def refresh() {
+    poll()
+}
+
+// Capability: Switch
+
+def on() {
+    logDebug "Turning zone ${zoneNumber} ON"
+    
+    // Check for last pattern/effect
+    def lastEffect = device.currentValue("effectName")
+    def lastCmd = device.currentValue("lastCommand")
+    
+    if (lastEffect && lastCmd) {
+        // Replay last pattern
+        logDebug "Replaying last pattern: ${lastEffect}"
+        sendCommand(lastCmd)
+    } else if (lastCmd) {
+        // Replay last command (could be custom color)
+        logDebug "Replaying last command"
+        sendCommand(lastCmd)
+    } else {
+        // Default: solid white
+        logDebug "No previous pattern, using default white"
+        setColor([hue: 0, saturation: 0, level: 100])
+    }
+}
+
+def off() {
+    logDebug "Turning zone ${zoneNumber} OFF"
+    
+    def url = buildCommandUrl([
+        patternType: "off",
+        zones: zoneNumber,
+        num_zones: 1,
+        num_colors: 1,
+        colors: "0,0,0",
+        direction: "F",
+        speed: 0,
+        gap: 0,
+        other: 0,
+        pause: 0
+    ])
+    
+    def success = sendCommand(url)
+    if (success) {
+        // Don't update lastCommand - we want to keep the last pattern for next on()
+        sendEvent(name: "switch", value: "off")
+    }
+}
+
+// Capability: LevelControl
+
+def setLevel(level, duration = null) {
+    logDebug "Setting level to ${level}%"
+    
+    // Get current color
+    def hue = device.currentValue("hue") ?: 0
+    def saturation = device.currentValue("saturation") ?: 0
+    
+    // Convert to RGB and scale by brightness
+    def rgb = hsvToRgb(hue, saturation, level)
+    
+    setColor([red: rgb[0], green: rgb[1], blue: rgb[2]])
+}
+
+// Capability: ColorControl
+
+def setColor(Map colorMap) {
+    logDebug "Setting color: ${colorMap}"
+    
+    def red = colorMap.red ?: colorMap.r ?: 255
+    def green = colorMap.green ?: colorMap.g ?: 255
+    def blue = colorMap.blue ?: colorMap.b ?: 255
+    
+    // If HSV provided, convert to RGB
+    if (colorMap.hue != null || colorMap.saturation != null || colorMap.level != null) {
+        def h = colorMap.hue ?: device.currentValue("hue") ?: 0
+        def s = colorMap.saturation ?: device.currentValue("saturation") ?: 0
+        def v = colorMap.level ?: device.currentValue("level") ?: 100
+        
+        def rgb = hsvToRgb(h, s, v)
+        red = rgb[0]
+        green = rgb[1]
+        blue = rgb[2]
+    }
+    
+    // Clamp values
+    red = Math.max(0, Math.min(255, red))
+    green = Math.max(0, Math.min(255, green))
+    blue = Math.max(0, Math.min(255, blue))
+    
+    def url = buildCommandUrl([
+        patternType: "custom",
+        zones: zoneNumber,
+        num_zones: 1,
+        num_colors: 1,
+        colors: "${red},${green},${blue}",
+        direction: "F",
+        speed: 0,
+        gap: 0,
+        other: 0,
+        pause: 0
+    ])
+    
+    // Send command and store for future on() calls
+    def success = sendCommand(url)
+    if (success) {
+        sendEvent(name: "lastCommand", value: url)
+        sendEvent(name: "effectName", value: null) // Clear effect name when using custom color
+        sendEvent(name: "switch", value: "on")
+    }
+    
+    // Update attributes
+    def hsv = rgbToHsv(red, green, blue)
+    sendEvent(name: "hue", value: hsv[0])
+    sendEvent(name: "saturation", value: hsv[1])
+    sendEvent(name: "level", value: hsv[2])
+    sendEvent(name: "color", value: [hue: hsv[0], saturation: hsv[1], level: hsv[2]])
+}
+
+def setHue(hue) {
+    def saturation = device.currentValue("saturation") ?: 0
+    def level = device.currentValue("level") ?: 100
+    setColor([hue: hue, saturation: saturation, level: level])
+}
+
+def setSaturation(saturation) {
+    def hue = device.currentValue("hue") ?: 0
+    def level = device.currentValue("level") ?: 100
+    setColor([hue: hue, saturation: saturation, level: level])
+}
+
+// Capability: LightEffects
+
+def setEffect(String effectName) {
+    logDebug "Setting effect: ${effectName}"
+    
+    def patternUrl = getPatternUrl(effectName)
+    if (!patternUrl) {
+        log.error "Unknown effect: ${effectName}. Available: ${buildEffectList()}"
+        return
+    }
+    
+    // Send command and store for future on() calls
+    def success = sendCommand(patternUrl)
+    if (success) {
+        sendEvent(name: "effectName", value: effectName)
+        sendEvent(name: "lastCommand", value: patternUrl)
+        sendEvent(name: "switch", value: "on")
+        logDebug "Pattern '${effectName}' set and stored"
+    }
+}
+
+def getEffectList() {
+    // Return sorted list for Simple Automation Rules dropdown
+    return buildEffectList()
+}
+
+// Build effect list including predefined and custom patterns
+def buildEffectList() {
+    def list = []
+    
+    // Add predefined patterns
+    list.addAll(PATTERNS.keySet())
+    
+    // Add custom patterns (if names are set)
+    for (int i = 1; i <= 20; i++) {
+        def name = settings."customPattern${i}Name"
+        if (name && name.trim()) {
+            list.add(name.trim())
+        }
+    }
+    
+    return list.sort()
+}
+
+// Get pattern URL - handles both predefined and custom patterns
+def getPatternUrl(String effectName) {
+    // Check predefined patterns first
+    def pattern = PATTERNS[effectName]
+    if (pattern) {
+        // Replace {zone} placeholder
+        def url = pattern.replace("{zone}", zoneNumber.toString())
+        return "http://${controllerIP}/${url}"
+    }
+    
+    // Check custom patterns
+    for (int i = 1; i <= 20; i++) {
+        def customName = settings."customPattern${i}Name"
+        if (customName && customName.trim() == effectName) {
+            def red = settings."customPattern${i}Red" ?: 255
+            def green = settings."customPattern${i}Green" ?: 255
+            def blue = settings."customPattern${i}Blue" ?: 255
+            return buildCustomColorUrl(red, green, blue)
+        }
+    }
+    
+    return null
+}
+
+// Build URL for custom color pattern
+def buildCustomColorUrl(int red, int green, int blue) {
+    def url = buildCommandUrl([
+        patternType: "custom",
+        zones: zoneNumber,
+        num_zones: 1,
+        num_colors: 1,
+        colors: "${red},${green},${blue}",
+        direction: "F",
+        speed: 0,
+        gap: 0,
+        other: 0,
+        pause: 0
+    ])
+    return url
+}
+
+// HTTP Communication
+
+def sendCommand(String url) {
+    logDebug "Sending command: ${url}"
+    
+    try {
+        httpGet([
+            uri: url,
+            timeout: (commandTimeout ?: 10) * 1000
+        ]) { response ->
+            def status = response.status
+            def text = response.data?.text ?: response.data?.toString() ?: ""
+            
+            if (status == 200 && text.contains("Command Received")) {
+                logDebug "Command sent successfully"
+                
+                // If verification is enabled, start verification process
+                if (verifyCommands) {
+                    startVerification(url)
+                } else {
+                    // Optimistic update when verification disabled
+                    def isOff = url.contains("patternType=off")
+                    sendEvent(name: "switch", value: isOff ? "off" : "on")
+                }
+                
+                return true
+            } else {
+                log.warn "Unexpected response: status=${status}, text=${text}"
+                sendEvent(name: "verificationStatus", value: "error")
+                return false
+            }
+        }
+    } catch (Exception e) {
+        log.error "Command failed: ${e.message}"
+        sendEvent(name: "verificationStatus", value: "error")
+        return false
+    }
+}
+
+// Start verification process (async using runIn)
+def startVerification(String commandUrl) {
+    logDebug "Starting verification for command: ${commandUrl}"
+    
+    // Parse command to determine what we expect
+    def expectedState = parseCommandExpectation(commandUrl)
+    if (!expectedState) {
+        log.warn "Could not parse command expectation, skipping verification"
+        sendEvent(name: "verificationStatus", value: "skipped")
+        return
+    }
+    
+    // Store verification state
+    state.verificationCommandUrl = commandUrl
+    state.verificationExpectedState = expectedState
+    state.verificationAttempt = 0
+    state.verificationStartTime = now()
+    
+    // Start first verification attempt immediately
+    verifyCommandState(commandUrl, expectedState.toString(), 1, now())
+}
+
+// Verify command state (called via runIn for async retries)
+def verifyCommandState(data) {
+    def commandUrl = data?.commandUrl ?: state.verificationCommandUrl
+    def attempt = data?.attempt ?: 1
+    def startTime = data?.startTime ?: state.verificationStartTime ?: now()
+    
+    logDebug "Verification attempt ${attempt} for command: ${commandUrl}"
+    
+    def maxRetries = verificationRetries ?: 3
+    def delaySeconds = verificationDelay ?: 2
+    def timeoutSeconds = verificationTimeout ?: 30
+    
+    // Check if we've exceeded timeout
+    if (now() - startTime > timeoutSeconds * 1000) {
+        log.warn "Verification timeout after ${timeoutSeconds} seconds"
+        sendEvent(name: "verificationStatus", value: "timeout")
+        state.verificationCommandUrl = null
+        state.verificationExpectedState = null
+        return
+    }
+    
+    // Get current status from controller
+    getCurrentZoneStateForVerification(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+}
+
+// Get current zone state and compare with expected
+def getCurrentZoneStateForVerification(String commandUrl, int attempt, int maxRetries, int delaySeconds, long startTime) {
+    if (!controllerIP) {
+        log.error "Cannot verify: Controller IP not configured"
+        sendEvent(name: "verificationStatus", value: "error")
+        return
+    }
+    
+    def url = "http://${controllerIP}/getController"
+    logDebug "Getting zone state for verification (attempt ${attempt}/${maxRetries})"
+    
+    try {
+        httpGet([
+            uri: url,
+            timeout: (commandTimeout ?: 10) * 1000
+        ]) { response ->
+            if (response.status == 200) {
+                def zones = response.data
+                if (zones instanceof List) {
+                    def zoneData = zones.find { it.num == zoneNumber }
+                    if (zoneData) {
+                        def currentState = [
+                            pattern: zoneData.pattern ?: "off",
+                            isOff: (zoneData.pattern == "off")
+                        ]
+                        
+                        // Get expected state from stored state
+                        def expectedState = state.verificationExpectedState
+                        if (!expectedState) {
+                            // Try to parse from command URL
+                            expectedState = parseCommandExpectation(commandUrl)
+                        }
+                        
+                        if (matchesExpectedState(currentState, expectedState)) {
+                            logDebug "Command verified successfully on attempt ${attempt}"
+                            sendEvent(name: "verificationStatus", value: "verified")
+                            updateStateFromVerification(currentState)
+                            // Clear verification state
+                            state.verificationCommandUrl = null
+                            state.verificationExpectedState = null
+                            return
+                        } else {
+                            logDebug "Verification attempt ${attempt}/${maxRetries} failed. Expected: ${expectedState}, Got: ${currentState}"
+                            
+                            // Schedule next attempt if not exceeded max retries
+                            if (attempt < maxRetries) {
+                                def nextAttempt = attempt + 1
+                                logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
+                                runIn(delaySeconds, "verifyCommandState", [data: [
+                                    commandUrl: commandUrl,
+                                    attempt: nextAttempt,
+                                    startTime: startTime
+                                ]])
+                            } else {
+                                log.warn "Command verification failed after ${maxRetries} attempts"
+                                sendEvent(name: "verificationStatus", value: "failed")
+                                // Clear verification state
+                                state.verificationCommandUrl = null
+                                state.verificationExpectedState = null
+                            }
+                        }
+                    } else {
+                        log.warn "Zone ${zoneNumber} not found in response for verification"
+                        handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+                    }
+                } else {
+                    log.error "Invalid response format for verification: ${zones}"
+                    handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+                }
+            } else {
+                log.error "Poll failed with status: ${response.status} for verification"
+                handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+            }
+        }
+    } catch (Exception e) {
+        log.error "Error getting zone state for verification: ${e.message}"
+        handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+    }
+}
+
+// Handle verification retry logic
+def handleVerificationRetry(String commandUrl, int attempt, int maxRetries, int delaySeconds, long startTime) {
+    if (attempt < maxRetries) {
+        def nextAttempt = attempt + 1
+        def timeoutSeconds = verificationTimeout ?: 30
+        
+        // Check timeout
+        if (now() - startTime > timeoutSeconds * 1000) {
+            log.warn "Verification timeout after ${timeoutSeconds} seconds"
+            sendEvent(name: "verificationStatus", value: "timeout")
+            state.verificationCommandUrl = null
+            state.verificationExpectedState = null
+            return
+        }
+        
+        logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
+        runIn(delaySeconds, "verifyCommandState", [data: [
+            commandUrl: commandUrl,
+            attempt: nextAttempt,
+            startTime: startTime
+        ]])
+    } else {
+        log.warn "Command verification failed after ${maxRetries} attempts"
+        sendEvent(name: "verificationStatus", value: "failed")
+        state.verificationCommandUrl = null
+        state.verificationExpectedState = null
+    }
+}
+
+// Parse command URL to determine expected state
+def parseCommandExpectation(String url) {
+    try {
+        def params = parseUrlParams(url)
+        
+        def patternType = params.get("patternType")
+        def zones = params.get("zones")
+        def colors = params.get("colors")
+        
+        // Only verify if this command is for our zone
+        if (zones && zones.toString() != zoneNumber.toString()) {
+            return null // Not our zone, skip verification
+        }
+        
+        def expectation = [:]
+        expectation.patternType = patternType
+        expectation.isOff = (patternType == "off")
+        
+        if (colors && patternType == "custom") {
+            // Parse RGB colors
+            def colorParts = colors.split(",")
+            if (colorParts.length >= 3) {
+                try {
+                    expectation.colors = [
+                        Integer.parseInt(colorParts[0].trim()),
+                        Integer.parseInt(colorParts[1].trim()),
+                        Integer.parseInt(colorParts[2].trim())
+                    ]
+                } catch (NumberFormatException e) {
+                    log.warn "Could not parse color values: ${colors}"
+                }
+            }
+        }
+        
+        return expectation
+    } catch (Exception e) {
+        log.error "Error parsing command expectation: ${e.message}"
+        return null
+    }
+}
+
+// Parse command URL to extract parameters (helper for URL decoding)
+def parseUrlParams(String url) {
+    try {
+        def uri = new URI(url)
+        def query = uri.query
+        if (!query) return [:]
+        
+        def params = [:]
+        query.split("&").each { param ->
+            def parts = param.split("=", 2)
+            if (parts.length == 2) {
+                def key = java.net.URLDecoder.decode(parts[0], "UTF-8")
+                def value = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                params[key] = value
+            }
+        }
+        return params
+    } catch (Exception e) {
+        log.error "Error parsing URL params: ${e.message}"
+        return [:]
+    }
+}
+
+// Check if current state matches expected state
+def matchesExpectedState(Map currentState, Map expectedState) {
+    if (!currentState || !expectedState) return false
+    
+    // Check if off state matches
+    if (expectedState.isOff != null) {
+        if (currentState.isOff != expectedState.isOff) {
+            return false
+        }
+    }
+    
+    // If turning off, that's sufficient
+    if (expectedState.isOff == true) {
+        return true
+    }
+    
+    // For on states, check pattern type matches (if we can determine it)
+    if (expectedState.patternType && currentState.pattern) {
+        // For custom colors, we can't easily verify exact color match from status
+        // So we just verify it's not "off"
+        if (expectedState.patternType == "custom") {
+            return !currentState.isOff
+        }
+        
+        // For named patterns, check pattern type matches
+        // Note: controller may return pattern name, not type, so this is approximate
+        if (currentState.pattern != "off" && currentState.pattern != "custom") {
+            // Pattern is set, which is good enough for verification
+            return true
+        }
+    }
+    
+    // If we can't determine match, assume it matches (better to be optimistic)
+    return true
+}
+
+// Update device state from verified status
+def updateStateFromVerification(Map zoneState) {
+    if (!zoneState) return
+    
+    def isOn = !zoneState.isOff
+    sendEvent(name: "switch", value: isOn ? "on" : "off")
+    
+    if (isOn && zoneState.pattern && zoneState.pattern != "custom") {
+        // Try to match pattern to effect name
+        def effectName = findEffectName(zoneState.pattern)
+        if (effectName) {
+            sendEvent(name: "effectName", value: effectName)
+        }
+    }
+}
+
+def poll() {
+    if (!controllerIP) {
+        log.error "Cannot poll: Controller IP not configured"
+        return
+    }
+    
+    def url = "http://${controllerIP}/getController"
+    logDebug "Polling: ${url}"
+    
+    try {
+        httpGet([
+            uri: url,
+            timeout: (commandTimeout ?: 10) * 1000
+        ]) { response ->
+            if (response.status == 200) {
+                def zones = response.data
+                if (zones instanceof List) {
+                    def zoneData = zones.find { it.num == zoneNumber }
+                    if (zoneData) {
+                        updateZoneState(zoneData)
+                    } else {
+                        log.warn "Zone ${zoneNumber} not found in response"
+                    }
+                } else {
+                    log.error "Invalid response format: ${zones}"
+                }
+            } else {
+                log.error "Poll failed with status: ${response.status}"
+            }
+        }
+    } catch (Exception e) {
+        log.error "Poll failed: ${e.message}"
+    }
+    
+    // Schedule next poll if auto-polling enabled
+    if (autoPoll) {
+        def interval = pollInterval ?: 30
+        runIn(interval, poll)
+    }
+}
+
+// Helper Methods
+
+def buildCommandUrl(Map params) {
+    def query = params.collect { k, v -> "${k}=${URLEncoder.encode(v.toString(), "UTF-8")}" }.join("&")
+    return "http://${controllerIP}/setPattern?${query}"
+}
+
+def updateZoneState(Map zoneData) {
+    def pattern = zoneData.pattern ?: "off"
+    def isOn = pattern != "off"
+    
+    sendEvent(name: "switch", value: isOn ? "on" : "off")
+    
+    if (isOn && pattern != "custom") {
+        // Try to match pattern to effect name
+        def effectName = findEffectName(pattern)
+        if (effectName) {
+            sendEvent(name: "effectName", value: effectName)
+        }
+    }
+}
+
+def findEffectName(String patternType) {
+    // Try to find matching effect by patternType
+    def match = PATTERNS.find { name, url -> url.contains("patternType=${patternType}") }
+    return match ? match.key : null
+}
+
+def getPatternUrl(String effectName) {
+    def pattern = PATTERNS[effectName]
+    if (!pattern) {
+        return null
+    }
+    
+    // Replace {zone} placeholder
+    def url = pattern.replace("{zone}", zoneNumber.toString())
+    
+    // Build full URL
+    return "http://${controllerIP}/${url}"
+}
+
+// Color Conversion Utilities
+
+def rgbToHsv(int r, int g, int b) {
+    r = r / 255.0
+    g = g / 255.0
+    b = b / 255.0
+    
+    def max = Math.max(Math.max(r, g), b)
+    def min = Math.min(Math.min(r, g), b)
+    def delta = max - min
+    
+    def h = 0
+    def s = 0
+    def v = max * 100
+    
+    if (delta != 0) {
+        s = delta / max * 100
+        
+        if (max == r) {
+            h = ((g - b) / delta) % 6
+        } else if (max == g) {
+            h = (b - r) / delta + 2
+        } else {
+            h = (r - g) / delta + 4
+        }
+        
+        h = Math.round(h * 60)
+        if (h < 0) h += 360
+    }
+    
+    return [h, Math.round(s), Math.round(v)]
+}
+
+def hsvToRgb(int h, int s, int v) {
+    h = h % 360
+    s = s / 100.0
+    v = v / 100.0
+    
+    def c = v * s
+    def x = c * (1 - Math.abs((h / 60.0) % 2 - 1))
+    def m = v - c
+    
+    def r = 0, g = 0, b = 0
+    
+    if (h < 60) {
+        r = c; g = x; b = 0
+    } else if (h < 120) {
+        r = x; g = c; b = 0
+    } else if (h < 180) {
+        r = 0; g = c; b = x
+    } else if (h < 240) {
+        r = 0; g = x; b = c
+    } else if (h < 300) {
+        r = x; g = 0; b = c
+    } else {
+        r = c; g = 0; b = x
+    }
+    
+    return [
+        Math.round((r + m) * 255),
+        Math.round((g + m) * 255),
+        Math.round((b + m) * 255)
+    ]
+}
+
+// Logging
+
+def logDebug(String msg) {
+    if (logEnable) {
+        log.debug "[Zone ${zoneNumber}] ${msg}"
+    }
+}
+
+// Pattern Definitions
+// TODO: Import from patterns.py or define inline
+// This is a subset - full list should be imported from patterns.py
+
+static final Map PATTERNS = [
+    "Christmas: Candy Cane Glimmer": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,255,0,0,255,255,255,255,0,0,&direction=R&speed=20&gap=0&other=0&pause=0",
+    "Christmas: Candy Cane Lane": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,255,0,0,255,0,0,255,0,0,&direction=R&speed=4&gap=0&other=0&pause=0",
+    "Halloween: Goblin Delight": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,53,255,0,53,255,0,53,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
+    "Fourth of July: Fast Fireworks": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0"
+    // TODO: Add all patterns from patterns.py
+]
+

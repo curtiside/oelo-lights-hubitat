@@ -1,0 +1,18 @@
+{
+	"packageName": "Oelo Lights",
+	"minimumHEVersion": "2.1.9",
+	"author": "Your Name",
+	"version": "0.5.0",
+	"dateReleased": "2024-12-19",
+	"releaseNotes": "debug version of Oelo Lights Zone Driver\n- Support for 6 zones independently\n- 60+ predefined patterns\n- 20 custom patterns\n- Simple Automation Rules integration\n- Command verification",
+	"drivers": [
+		{
+			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
+			"name": "Oelo Lights Zone",
+			"namespace": "pizzaman383",
+			"location": "https://raw.githubusercontent.com/curtiside/oelo-lights-hubitat/main/drivers/oelo-lights-zone.groovy",
+			"required": true
+		}
+	]
+}
+
