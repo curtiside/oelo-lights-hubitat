@@ -27,7 +27,7 @@
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
  * @author Curtis Ide
- * @version 0.6.11
+ * @version 0.6.12
  */
 
 metadata {
@@ -115,7 +115,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.11"
+    def driverVersion = "0.6.12"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -741,6 +741,33 @@ def poll() {
                         }
                     } catch (Exception e) {
                         log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
+                    }
+                    return
+                }
+                
+                // If it's an InputStream (ByteArrayInputStream), read it as text and parse
+                if (zones instanceof java.io.InputStream) {
+                    try {
+                        def zonesText = zones.text
+                        zones = new groovy.json.JsonSlurper().parseText(zonesText)
+                        logDebug "Successfully parsed JSON from InputStream to List"
+                        
+                        if (zones instanceof List) {
+                            def zoneData = zones.find { 
+                                def zoneNum = it.num
+                                zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
+                            }
+                            if (zoneData) {
+                                logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
+                                updateZoneState(zoneData)
+                            } else {
+                                log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
+                            }
+                        } else {
+                            log.error "Parsed JSON from InputStream but result is not a List"
+                        }
+                    } catch (Exception e) {
+                        log.error "Failed to parse JSON from InputStream: ${e.message}"
                     }
                     return
                 }
