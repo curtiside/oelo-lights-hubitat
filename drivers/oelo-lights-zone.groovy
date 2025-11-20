@@ -19,8 +19,8 @@
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
         capability "Switch"
+        capability "SwitchLevel"
         capability "ColorControl"
-        capability "LevelControl"
         capability "LightEffects"
         capability "Refresh"
         
@@ -197,7 +197,7 @@ def off() {
     }
 }
 
-// Capability: LevelControl
+// Capability: SwitchLevel
 
 def setLevel(level, duration = null) {
     logDebug "Setting level to ${level}%"
