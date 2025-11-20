@@ -17,7 +17,7 @@
  */
 
 metadata {
-    definition(name: "Oelo Lights Zone", namespace: "your-namespace", author: "Your Name", importUrl: "") {
+    definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
         capability "Switch"
         capability "ColorControl"
         capability "LevelControl"
