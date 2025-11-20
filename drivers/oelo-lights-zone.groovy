@@ -20,7 +20,7 @@
  * **Optional Settings:**
  * - Poll Interval: How often to poll controller status (default: 30 seconds)
  * - Auto Polling: Automatically poll controller status (default: enabled)
- * - Custom Patterns: Up to 20 user-defined patterns with custom names
+ * - Patterns: Up to 20 user-defined patterns with custom names
  * - Debug Logging: Enable detailed logging for troubleshooting
  * - Command Timeout: HTTP request timeout (default: 10 seconds)
  * 
@@ -50,29 +50,23 @@
  * ## Commands
  * 
  * **Primary Commands:**
- * - `setCustomPattern()` - Set custom pattern chosen from Custom Pattern Selection dropdown
- * - `setStandardPattern()` - Set standard/predefined pattern chosen from Standard Pattern Selection dropdown
+ * - `setPattern()` - Set pattern chosen from Pattern Selection dropdown
  * - `off()` - Turn off lights
  * - `refresh()` - Get current state from controller
+ * - `getPattern()` - Capture current pattern from controller and save it
  * 
  * **Pattern Selection:**
- * - Custom patterns: Configured in device preferences (up to 20 patterns)
- * - Standard patterns: 77 predefined patterns from Home Assistant integration
- * - Patterns are selected via dropdown menus in device preferences
- * - Commands use the selected pattern from their respective dropdown
+ * - Patterns: Configured in device preferences (up to 20 patterns)
+ * - Patterns are selected via dropdown menu in device preferences
+ * - Commands use the selected pattern from the dropdown
  * 
  * ## Pattern Support
  * 
- * **Predefined Patterns:**
- * - 77 standard patterns organized by category (Christmas, Halloween, Fourth of July, etc.)
- * - Patterns include full URL parameters (colors, speed, direction, etc.)
- * - Pattern names and URLs are defined in PATTERNS map
- * 
- * **Custom Patterns:**
- * - Up to 20 custom patterns can be configured per device
- * - Custom patterns use pattern name as patternType (controller has settings stored)
- * - Custom pattern names are user-defined
- * - Custom patterns appear in Custom Pattern Selection dropdown only
+ * **Patterns:**
+ * - Up to 20 patterns can be configured per device
+ * - Patterns use pattern name as patternType (controller has settings stored)
+ * - Pattern names are user-defined
+ * - Patterns appear in Pattern Selection dropdown
  * 
  * ## Attributes
  * 
@@ -80,7 +74,7 @@
  * - `controllerIP`: Controller IP address
  * - `lastCommand`: Last command URL sent
  * - `currentPattern`: Current pattern string from controller (e.g., "march", "off", "custom")
- * - `effectName`: Current pattern name if it matches a predefined pattern (empty if custom or off)
+ * - `effectName`: Current pattern name if it matches a saved pattern (empty if not found or off)
  * - `verificationStatus`: Command verification status (if enabled)
  * - `driverVersion`: Current driver version
  * - `switch`: Current switch state ("on" or "off")
@@ -115,7 +109,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.7.3
+ * @version 0.7.4
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -203,8 +197,7 @@ metadata {
         attribute "switch", "string"
         
         // Custom commands
-        command "setCustomPattern"
-        command "setStandardPattern"
+        command "setPattern"
         command "getPattern"
         command "off"
     }
@@ -215,27 +208,21 @@ metadata {
             input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
         }
         
-        section("Standard Pattern Selection") {
-            input name: "selectedStandardPattern", type: "enum", title: "Select Standard Pattern", 
-                options: (["": "-- Select Pattern --"] + PATTERNS.collectEntries { [it.key, it.key] }).sort(), 
-                required: false, description: "Choose a standard/predefined pattern to set"
+        section("Pattern Selection") {
+            input name: "selectedPattern", type: "enum", title: "Select Pattern", 
+                options: getPatternOptions(), 
+                required: false, description: "Choose a pattern to set"
         }
         
-        section("Custom Pattern Selection") {
-            input name: "selectedPattern", type: "enum", title: "Select Custom Pattern", 
-                options: getCustomPatternOptions(), 
-                required: false, description: "Choose a custom pattern to set"
-        }
-        
-        section("Custom Pattern Management") {
+        section("Pattern Management") {
             input name: "renamePattern", type: "enum", title: "Select Pattern to Rename", 
-                options: getCustomPatternOptions(), 
-                required: false, description: "Select a custom pattern to rename"
+                options: getPatternOptions(), 
+                required: false, description: "Select a pattern to rename"
             input name: "newPatternName", type: "text", title: "New Pattern Name", 
                 required: false, description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
-            input name: "deletePattern", type: "enum", title: "Delete Custom Pattern", 
-                options: getCustomPatternOptions(), 
-                required: false, description: "Select a custom pattern to delete (pattern will be deleted when preferences are saved)"
+            input name: "deletePattern", type: "enum", title: "Delete Pattern", 
+                options: getPatternOptions(), 
+                required: false, description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
         }
         
         section("Polling") {
@@ -272,21 +259,15 @@ def updated() {
     // Set driver version immediately
     setDriverVersion()
     
-    // Store PATTERNS in state if not already stored (try to populate it here too)
-    if (PATTERNS && !state.patternsMap) {
-        state.patternsMap = PATTERNS
-        log.debug "Stored PATTERNS map in state during updated() (${PATTERNS.size()} patterns)"
-    }
-    
     // Handle pattern renaming if renamePattern and newPatternName preferences were set
     if (settings.renamePattern && settings.renamePattern != "" && settings.newPatternName && settings.newPatternName.trim() != "") {
         def oldPatternName = settings.renamePattern
         def newPatternName = settings.newPatternName.trim()
         
-        def customPatterns = state.customPatterns ?: []
+        def patterns = state.patterns ?: []
         
         // Check if pattern with old name exists - if not, it was already renamed or doesn't exist
-        def patternToRename = customPatterns.find { it && it.name == oldPatternName }
+        def patternToRename = patterns.find { it && it.name == oldPatternName }
         if (!patternToRename) {
             // Pattern with old name doesn't exist - already renamed or never existed, skip
             log.debug "Pattern '${oldPatternName}' not found - already renamed or doesn't exist, skipping rename action"
@@ -294,16 +275,16 @@ def updated() {
             // Check if pattern already has the new name (no change needed)
             log.debug "Pattern '${oldPatternName}' already has name '${newPatternName}', skipping rename action"
         } else {
-            log.warn "Preference action: Renaming custom pattern '${oldPatternName}' to '${newPatternName}'"
-        log.info "Renaming custom pattern: '${oldPatternName}' to '${newPatternName}'"
+            log.warn "Preference action: Renaming pattern '${oldPatternName}' to '${newPatternName}'"
+        log.info "Renaming pattern: '${oldPatternName}' to '${newPatternName}'"
         
         // Check if new name already exists (and it's not the same pattern)
-        def nameExists = customPatterns.find { it && it.name == newPatternName && it != patternToRename }
+        def nameExists = patterns.find { it && it.name == newPatternName && it != patternToRename }
         if (nameExists) {
             log.warn "Cannot rename: Pattern name '${newPatternName}' already exists"
         } else {
             patternToRename.name = newPatternName
-            state.customPatterns = customPatterns
+            state.patterns = patterns
             log.info "Renamed pattern '${oldPatternName}' to '${newPatternName}'"
         }
         }
@@ -312,15 +293,15 @@ def updated() {
     // Handle pattern deletion if deletePattern preference was set
     if (settings.deletePattern && settings.deletePattern != "") {
         def patternName = settings.deletePattern
-        log.warn "Preference action: Deleting custom pattern '${patternName}'"
-        log.info "Deleting custom pattern: ${patternName}"
+        log.warn "Preference action: Deleting pattern '${patternName}'"
+        log.info "Deleting pattern: ${patternName}"
         
-        def customPatterns = state.customPatterns ?: []
+        def patterns = state.patterns ?: []
         def indexToDelete = -1
         
         // Find pattern to delete
-        for (int i = 0; i < customPatterns.size(); i++) {
-            if (customPatterns[i] && customPatterns[i].name == patternName) {
+        for (int i = 0; i < patterns.size(); i++) {
+            if (patterns[i] && patterns[i].name == patternName) {
                 indexToDelete = i
                 break
             }
@@ -328,13 +309,13 @@ def updated() {
         
         if (indexToDelete != -1) {
             // Remove pattern and compact list
-            customPatterns.remove(indexToDelete)
+            patterns.remove(indexToDelete)
             // Remove trailing nulls
-            while (customPatterns.size() > 0 && customPatterns[customPatterns.size() - 1] == null) {
-                customPatterns.remove(customPatterns.size() - 1)
+            while (patterns.size() > 0 && patterns[patterns.size() - 1] == null) {
+                patterns.remove(patterns.size() - 1)
             }
             
-            state.customPatterns = customPatterns
+            state.patterns = patterns
             log.info "Deleted pattern '${patternName}' and compacted list"
             
             // Clear the deletePattern setting (can't use app.updateSetting in driver, will clear on next save)
@@ -349,7 +330,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.7.3"
+    def driverVersion = "0.7.4"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -362,22 +343,13 @@ def initialize() {
     // Set driver version (in case initialize is called directly)
     setDriverVersion()
     
-    // Store PATTERNS in state so it's accessible at runtime (same approach as custom patterns)
-    // PATTERNS works in metadata block but not in functions at runtime, so store it in state
-    if (PATTERNS && !state.patternsMap) {
-        state.patternsMap = PATTERNS
-        log.debug "Stored PATTERNS map in state (${PATTERNS.size()} patterns)"
-    } else if (!state.patternsMap) {
-        log.warn "PATTERNS not accessible during initialization - standard patterns may not work"
-    }
-    
-    // Initialize custom patterns storage if not exists
-    if (!state.customPatterns) {
-        state.customPatterns = []
+    // Initialize patterns storage if not exists
+    if (!state.patterns) {
+        state.patterns = []
     }
     
     // Migrate old settings-based patterns to state (one-time migration)
-    migrateOldCustomPatterns()
+    migrateOldPatterns()
     
     if (!controllerIP) {
         log.error "Controller IP address not configured"
@@ -480,7 +452,7 @@ def off() {
     }
 }
 
-// Internal function: Set effect (used by setCustomPattern and setStandardPattern commands)
+// Internal function: Set effect (used by setPattern command)
 def setEffect(String effectName) {
     logDebug "Setting effect: ${effectName}"
     
@@ -500,29 +472,16 @@ def setEffect(String effectName) {
     }
 }
 
-// Custom command: Set custom pattern from dropdown selection (Preferences)
-def setCustomPattern() {
-    log.warn "setCustomPattern() command called"
+// Custom command: Set pattern from dropdown selection (Preferences)
+def setPattern() {
+    log.warn "setPattern() command called"
     def patternName = settings.selectedPattern
     if (!patternName || patternName == "") {
-        log.warn "No custom pattern selected. Please select a custom pattern from Preferences → Custom Pattern Selection section first."
+        log.warn "No pattern selected. Please select a pattern from Preferences → Pattern Selection section first."
         return
     }
     
-    log.info "Setting custom pattern from Preferences dropdown: ${patternName}"
-    setEffect(patternName)
-}
-
-// Custom command: Set standard/predefined pattern from dropdown selection (Preferences)
-def setStandardPattern() {
-    log.warn "setStandardPattern() command called"
-    def patternName = settings.selectedStandardPattern
-    if (!patternName || patternName == "") {
-        log.warn "No standard pattern selected. Please select a standard pattern from Preferences → Standard Pattern Selection section first."
-        return
-    }
-    
-    log.info "Setting standard pattern from Preferences dropdown: ${patternName}"
+    log.info "Setting pattern from Preferences dropdown: ${patternName}"
     setEffect(patternName)
 }
 
@@ -621,12 +580,12 @@ def getPattern() {
         log.debug "Generated stable pattern ID: '${patternId}'"
         log.debug "[SUCCESS] Step 6: Stable pattern ID determined: '${patternId}'"
         
-        log.debug "[Step 7] Retrieving custom patterns list from state..."
-        // Get custom patterns list
-        def customPatterns = state.customPatterns ?: []
-        log.debug "Current custom patterns count: ${customPatterns.size()}"
-        log.debug "Custom patterns: ${customPatterns}"
-        log.debug "[SUCCESS] Step 7: Custom patterns list retrieved"
+        log.debug "[Step 7] Retrieving patterns list from state..."
+        // Get patterns list
+        def patterns = state.patterns ?: []
+        log.debug "Current patterns count: ${patterns.size()}"
+        log.debug "Patterns: ${patterns}"
+        log.debug "[SUCCESS] Step 7: Patterns list retrieved"
         
         log.debug "[Step 7a] Setting initial display name..."
         // Use the stable ID as the initial display name (user can edit this later)
@@ -635,28 +594,28 @@ def getPattern() {
         log.debug "[SUCCESS] Step 7a: Initial display name set"
         
         log.debug "[Step 8] Checking for existing pattern with same ID..."
-        // Check if a custom pattern with this ID already exists (prevents duplicates)
-        def existingIndex = customPatterns.findIndexOf { it && it.id == patternId }
+        // Check if a pattern with this ID already exists (prevents duplicates)
+        def existingIndex = patterns.findIndexOf { it && it.id == patternId }
         log.debug "Existing pattern search by ID: index=${existingIndex >= 0 ? existingIndex : 'not found'}"
         
         if (existingIndex >= 0) {
             log.debug "[Step 9] Pattern with same ID exists - updating parameters..."
             // Pattern with same ID exists - update urlParams but keep existing name (user may have renamed it)
-            def existingName = customPatterns[existingIndex].name
-            customPatterns[existingIndex].urlParams = urlParams
-            state.customPatterns = customPatterns
+            def existingName = patterns[existingIndex].name
+            patterns[existingIndex].urlParams = urlParams
+            state.patterns = patterns
             log.info "[SUCCESS] Step 9: Updated existing pattern '${existingName}' (ID: ${patternId}) with new parameters"
-            log.debug "Updated pattern: ${customPatterns[existingIndex]}"
+            log.debug "Updated pattern: ${patterns[existingIndex]}"
             log.debug "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         } else {
             log.debug "[Step 9] Finding next empty slot for new pattern..."
             // Find next empty slot for new pattern
-            def nextSlot = findNextEmptyPatternSlot(customPatterns)
+            def nextSlot = findNextEmptyPatternSlot(patterns)
             log.debug "Next empty slot: ${nextSlot >= 0 ? nextSlot : 'none found'}"
             
             if (nextSlot == -1) {
-                log.error "[FAILED] Step 9: No empty slots available (maximum 20 custom patterns)"
-                log.debug "Current custom patterns count: ${customPatterns.size()}"
+                log.error "[FAILED] Step 9: No empty slots available (maximum 20 patterns)"
+                log.debug "Current patterns count: ${patterns.size()}"
                 log.debug "=== GET PATTERN COMMAND FAILED ==="
                 return
             }
@@ -664,25 +623,25 @@ def getPattern() {
             
             log.debug "[Step 10] Storing new pattern in slot ${nextSlot}..."
             // Store new pattern with both ID (stable) and name (display)
-            if (customPatterns.size() < nextSlot) {
-                log.debug "Extending custom patterns list from ${customPatterns.size()} to ${nextSlot}"
+            if (patterns.size() < nextSlot) {
+                log.debug "Extending patterns list from ${patterns.size()} to ${nextSlot}"
                 // Extend list if needed
-                while (customPatterns.size() < nextSlot) {
-                    customPatterns.add(null)
+                while (patterns.size() < nextSlot) {
+                    patterns.add(null)
                 }
             }
-            customPatterns[nextSlot - 1] = [
+            patterns[nextSlot - 1] = [
                 id: patternId,
                 name: patternName,
                 urlParams: urlParams
             ]
             log.debug "Pattern stored at index ${nextSlot - 1}: id='${patternId}', name='${patternName}'"
             
-            state.customPatterns = customPatterns
-            log.debug "State updated. New custom patterns count: ${state.customPatterns.size()}"
+            state.patterns = patterns
+            log.debug "State updated. New patterns count: ${state.patterns.size()}"
             
-            log.info "[SUCCESS] Step 10: Stored new custom pattern '${patternName}' (ID: ${patternId}) in slot ${nextSlot}"
-            log.debug "Final custom patterns list: ${state.customPatterns}"
+            log.info "[SUCCESS] Step 10: Stored new pattern '${patternName}' (ID: ${patternId}) in slot ${nextSlot}"
+            log.debug "Final patterns list: ${state.patterns}"
             log.debug "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         }
     }
@@ -743,9 +702,9 @@ def parseColorStr(String colorStr) {
 }
 
 // Find next empty slot in custom patterns list
-def findNextEmptyPatternSlot(List customPatterns) {
+def findNextEmptyPatternSlot(List patterns) {
     for (int i = 0; i < 20; i++) {
-        if (i >= customPatterns.size() || customPatterns[i] == null) {
+        if (i >= patterns.size() || patterns[i] == null) {
             return i + 1  // Return 1-based slot number
         }
     }
@@ -753,21 +712,21 @@ def findNextEmptyPatternSlot(List customPatterns) {
 }
 
 // Migrate old settings-based custom patterns to state-based storage (one-time)
-def migrateOldCustomPatterns() {
+def migrateOldPatterns() {
     // Check if migration is needed (old patterns in settings, none in state)
-    if (state.customPatterns && state.customPatterns.size() > 0) {
+    if (state.patterns && state.patterns.size() > 0) {
         return  // Already migrated
     }
     
-    def customPatterns = []
+    def patterns = []
     def migrated = false
     
     // Check for old settings-based patterns
     for (int i = 1; i <= 20; i++) {
-        def name = settings."customPattern${i}Name"
+        def name = settings."pattern${i}Name"
         if (name && name.trim()) {
             // Migrate old pattern - use pattern name as patternType (minimal params)
-            customPatterns.add([
+            patterns.add([
                 name: name.trim(),
                 urlParams: [
                     patternType: name.trim(),
@@ -787,8 +746,8 @@ def migrateOldCustomPatterns() {
     }
     
     if (migrated) {
-        state.customPatterns = customPatterns
-        log.info "Migrated ${customPatterns.size()} custom patterns from settings to state"
+        state.patterns = patterns
+        log.info "Migrated ${patterns.size()} patterns from settings to state"
     }
 }
 
@@ -797,98 +756,66 @@ def getEffectList() {
     return buildEffectList()
 }
 
-// Build effect list including custom patterns first, then predefined patterns
+// Build effect list including patterns only
 def buildEffectList() {
-    def customList = []
-    def predefinedList = []
+    def patternList = []
     
-    // Add custom patterns from state (stored patterns)
-    def customPatterns = state.customPatterns ?: []
-    customPatterns.each { pattern ->
+    // Add patterns from state (stored patterns)
+    def patterns = state.patterns ?: []
+    patterns.each { pattern ->
         if (pattern && pattern.name) {
-            customList.add(pattern.name)
+            patternList.add(pattern.name)
         }
     }
     
-    // Add predefined patterns from state (same approach as custom patterns)
-    def patternsMap = state.patternsMap
-    if (patternsMap) {
-        predefinedList.addAll(patternsMap.keySet())
-    }
-    
-    // Combine: custom first (sorted), then predefined (sorted)
-    def result = []
-    result.addAll(customList.sort())
-    result.addAll(predefinedList.sort())
-    
-    return result
+    // Return sorted patterns
+    return patternList.sort()
 }
 
-// Build custom pattern options for enum dropdown (only custom patterns from state)
-def getCustomPatternOptions() {
+// Build pattern options for enum dropdown (patterns from state)
+def getPatternOptions() {
     def options = [:]
     
     // Add empty option first
-    options[""] = "-- Select Custom Pattern --"
+    options[""] = "-- Select Pattern --"
     
-    // Custom patterns from state (stored patterns)
-    def customPatterns = []
+    // Patterns from state (stored patterns)
+    def patterns = []
     try {
-        def storedPatterns = state.customPatterns ?: []
+        def storedPatterns = state.patterns ?: []
         storedPatterns.each { pattern ->
             if (pattern && pattern.name) {
-                customPatterns.add(pattern.name)
+                patterns.add(pattern.name)
             }
         }
     } catch (Exception e) {
         // state not available during metadata parsing - that's OK
     }
     
-    // Add custom patterns (sorted)
-    customPatterns.sort().each { pattern ->
+    // Add patterns (sorted)
+    patterns.sort().each { pattern ->
         options[pattern] = pattern
     }
     
     return options
 }
 
-// Get pattern URL - handles both predefined and custom patterns
+// Get pattern URL - handles patterns from state
 def getPatternUrl(String effectName) {
     log.debug "getPatternUrl: Looking for effect '${effectName}'"
     
-    // Check predefined patterns from state (same approach as custom patterns)
-    // Try to populate state.patternsMap if it's missing and PATTERNS is accessible
-    if (!state.patternsMap && PATTERNS) {
-        state.patternsMap = PATTERNS
-        log.debug "getPatternUrl: Populated state.patternsMap from PATTERNS (${PATTERNS.size()} patterns)"
-    }
-    
-    def patternsMap = state.patternsMap
-    if (patternsMap) {
-        log.debug "getPatternUrl: Checking state.patternsMap (${patternsMap.size()} patterns) for '${effectName}'"
-        def pattern = patternsMap[effectName]
-        if (pattern) {
-            log.debug "getPatternUrl: Found predefined pattern '${effectName}'"
-            // Replace {zone} placeholder
-            def url = pattern.replace("{zone}", zoneNumber.toString())
-            return "http://${controllerIP}/${url}"
-        } else {
-            log.debug "getPatternUrl: Pattern '${effectName}' not found in state.patternsMap"
-        }
-    } else {
-        log.warn "getPatternUrl: state.patternsMap is null and PATTERNS not accessible - standard patterns unavailable"
-    }
-    
-    // Check custom patterns from state
-    def customPatterns = state.customPatterns ?: []
-    def customPattern = customPatterns.find { it && it.name == effectName }
-    if (customPattern && customPattern.urlParams) {
+    // Check patterns from state
+    def patterns = state.patterns ?: []
+    def pattern = patterns.find { it && it.name == effectName }
+    if (pattern && pattern.urlParams) {
+        log.debug "getPatternUrl: Found pattern '${effectName}'"
         // Use stored URL parameters to build command URL
-        def urlParams = customPattern.urlParams.clone()
+        def urlParams = pattern.urlParams.clone()
         urlParams.zones = zoneNumber  // Ensure zone number is current
         return buildCommandUrl(urlParams)
     }
     
+    log.warn "getPatternUrl: Pattern '${effectName}' not found in patterns"
     return null
 }
 
@@ -1456,7 +1383,7 @@ def updateZoneState(Map zoneData) {
     // Update switch state
     sendEvent(name: "switch", value: isOn ? "on" : "off")
     
-    // Try to match pattern to effect name (for predefined patterns)
+    // Try to match pattern to effect name (for saved patterns)
     def effectName = null
     if (isOn && pattern != "off" && pattern != "custom") {
         effectName = findEffectName(pattern.toString())
@@ -1470,11 +1397,10 @@ def updateZoneState(Map zoneData) {
 }
 
 def findEffectName(String patternType) {
-    // Try to find matching effect by patternType from state (same approach as custom patterns)
-    def patternsMap = state.patternsMap
-    if (!patternsMap) return null
-    def match = patternsMap.find { name, url -> url.contains("patternType=${patternType}") }
-    return match ? match.key : null
+    // Try to find matching custom pattern by patternType
+    def patterns = state.patterns ?: []
+    def match = patterns.find { it && it.urlParams && it.urlParams.patternType == patternType }
+    return match ? match.name : null
 }
 
 // Color Conversion Utilities

@@ -5,8 +5,7 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 ## Features
 
 - **Multi-Zone Control**: Control up to 6 independent zones (requires separate virtual device per zone)
-- **77 Predefined Patterns**: Holiday and seasonal patterns (Christmas, Halloween, Fourth of July, etc.)
-- **Custom Pattern Capture**: Capture patterns created/edited in the Oelo app and save them for future use (up to 20 custom patterns)
+- **Pattern Capture**: Capture patterns created/edited in the Oelo app and save them for future use (up to 20 patterns)
 - **Simple Commands**: Easy-to-use commands for setting patterns and turning lights on/off
 - **Auto-Polling**: Automatic status polling with configurable intervals
 - **No Authentication Required**: Simple HTTP API with no credentials needed
@@ -48,7 +47,7 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 
 - **Poll Interval**: How often to poll controller status (default: 30 seconds)
 - **Auto Polling**: Automatically poll controller status (default: enabled)
-- **Custom Patterns**: Configure up to 20 custom patterns (see [Custom Patterns](#custom-patterns) below)
+- **Patterns**: Configure up to 20 patterns (see [Patterns](#patterns) below)
 - **Debug Logging**: Enable detailed logging for troubleshooting
 - **Command Timeout**: HTTP request timeout (default: 10 seconds)
 
@@ -79,9 +78,8 @@ See [CONFIGURATION.md](./CONFIGURATION.md) for detailed configuration instructio
 
 The driver provides the following commands:
 
-- **`setCustomPattern()`**: Set a custom pattern chosen from the Custom Pattern Selection dropdown
-- **`setStandardPattern()`**: Set a standard/predefined pattern chosen from the Standard Pattern Selection dropdown
-- **`getPattern()`**: Capture the current pattern from the controller and save it as a custom pattern
+- **`setPattern()`**: Set a pattern chosen from the Pattern Selection dropdown
+- **`getPattern()`**: Capture the current pattern from the controller and save it
 - **`off()`**: Turn off the lights
 - **`refresh()`**: Get current state from controller
 
@@ -89,16 +87,14 @@ The driver provides the following commands:
 
 1. **Select Pattern in Preferences**:
    - Go to device preferences
-   - **Custom Pattern Selection**: Choose from your configured custom patterns
-   - **Standard Pattern Selection**: Choose from 77 predefined patterns
+   - **Pattern Selection**: Choose from your configured patterns
    - Save preferences
 
 2. **Execute Command**:
-   - Use `setCustomPattern()` command to apply selected custom pattern
-   - Use `setStandardPattern()` command to apply selected standard pattern
+   - Use `setPattern()` command to apply selected pattern
    - Commands appear in device tile or can be called from automations
 
-### Custom Patterns
+### Patterns
 
 Capture and save patterns created/edited in the Oelo app:
 
@@ -107,7 +103,7 @@ Capture and save patterns created/edited in the Oelo app:
 2. **Set Pattern on Controller**: Apply the pattern to your zone using the Oelo app
 3. **Capture in Hubitat**: Use the `getPattern()` command to capture the current pattern from the controller
 4. **Pattern Saved**: The pattern is automatically saved with a stable ID (generated from pattern type and parameters) and an initial display name
-5. **Use Saved Pattern**: Select the captured pattern from **Custom Pattern Selection** dropdown and use `setCustomPattern()` command
+5. **Use Saved Pattern**: Select the captured pattern from **Pattern Selection** dropdown and use `setPattern()` command
 
 **Pattern Identification:**
 - **Pattern ID**: Stable identifier generated from pattern type and key parameters (e.g., "spotlight" or "spotlight_156colors")
@@ -119,47 +115,32 @@ Capture and save patterns created/edited in the Oelo app:
   - Renaming doesn't affect the pattern ID or prevent duplicates
 
 **Pattern Management:**
-- Up to 20 custom patterns can be stored per device
+- Up to 20 patterns can be stored per device
 - **Duplicate Prevention**: If a pattern with the same ID already exists, it will be updated with new parameters (keeps your custom name if you renamed it)
 - **Rename Patterns**: Use **Select Pattern to Rename** dropdown and **New Pattern Name** text field in device preferences, then save
 - **Delete Patterns**: Use the **Delete Pattern** dropdown in device preferences, then save
-- Custom patterns appear in **Custom Pattern Selection** dropdown for easy selection
+- Patterns appear in **Pattern Selection** dropdown for easy selection
 
 **Note**: The Oelo app is the primary tool for creating and editing patterns. Hubitat captures these patterns so they can be reused in automations and scenes. The pattern ID ensures that patterns with identical parameters are treated as the same pattern, even if you rename them.
 
-### Standard Patterns
-
-77 predefined patterns are available, organized by category:
-
-- **Holiday Patterns**: Christmas, Halloween, Fourth of July, Thanksgiving, etc.
-- **Seasonal Patterns**: Various themed patterns for different occasions
-- **Pattern Types**: march, stationary, river, chase, twinkle, split, fade, sprinkle, takeover, streak, bolt
-
-Standard patterns appear in **Standard Pattern Selection** dropdown. Use `setStandardPattern()` command after selecting a pattern.
-
 ### Example Automations
 
-**Example 1: Turn on Christmas pattern at sunset**
+**Example 1: Turn on pattern at sunset**
+- Create/edit pattern in Oelo Evolution app and apply it to the zone
+- In Hubitat, use `getPattern()` command to capture the pattern
 - Create Rule Machine rule
 - Trigger: Sunset
-- Action: Call `setStandardPattern()` command (after selecting "Christmas: Candy Cane Glimmer" in preferences)
+- Action: Call `setPattern()` command (after selecting the captured pattern in preferences)
 
 **Example 2: Turn off lights at midnight**
 - Create Rule Machine rule
 - Trigger: Time (12:00 AM)
 - Action: Call `off()` command
 
-**Example 3: Use custom pattern created in Oelo app**
-- Create/edit pattern in Oelo Evolution app and apply it to the zone
-- In Hubitat, use `getPattern()` command to capture the pattern
-- Create Rule Machine rule
-- Trigger: Time (7:00 PM)
-- Action: Call `setCustomPattern()` command (after selecting the captured pattern in preferences)
-
-**Example 4: Capture and reuse a favorite pattern**
+**Example 3: Capture and reuse a favorite pattern**
 - Set up your favorite pattern in the Oelo app
 - Use `getPattern()` command in Hubitat to save it
-- The pattern is now available in the Custom Pattern Selection dropdown for use in automations
+- The pattern is now available in the Pattern Selection dropdown for use in automations
 
 ## Troubleshooting
 
@@ -174,12 +155,12 @@ Standard patterns appear in **Standard Pattern Selection** dropdown. Use `setSta
 - Check firewall rules
 
 ### Patterns not appearing in dropdown
-- **Custom Patterns**: Ensure pattern names are entered in Custom Patterns section
-- **Standard Patterns**: All 77 patterns should appear automatically
+- Ensure patterns have been captured using `getPattern()` command
 - Try refreshing device preferences page
+- Check device logs for any errors
 
 ### Commands not working
-- Verify pattern is selected in appropriate dropdown (Custom or Standard)
+- Verify pattern is selected in Pattern Selection dropdown
 - Check device logs for error messages
 - Enable Debug Logging for detailed information
 - Verify controller IP and zone number are correct
@@ -198,7 +179,7 @@ The driver exposes the following attributes:
 - `controllerIP`: Controller IP address
 - `lastCommand`: Last command URL sent
 - `currentPattern`: Current pattern string from controller (e.g., "march", "off", "custom")
-- `effectName`: Current pattern name if it matches a predefined pattern (empty if custom or off)
+- `effectName`: Current pattern name if it matches a saved pattern (empty if not found or off)
 - `verificationStatus`: Command verification status (if enabled)
 - `driverVersion`: Current driver version
 - `switch`: Current switch state ("on" or "off")
