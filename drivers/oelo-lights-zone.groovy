@@ -27,7 +27,7 @@
  *   Workaround: Use explicit type checks (instanceof) rather than dynamic inspection
  * 
  * @author Curtis Ide
- * @version 0.6.10
+ * @version 0.6.11
  */
 
 metadata {
@@ -115,7 +115,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.10"
+    def driverVersion = "0.6.11"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)

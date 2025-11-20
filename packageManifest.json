@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.6.10",
+	"version": "0.6.11",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.6.10\n- Support for 6 zones as separate virtual devices\n- Commands: off, setSelectedPattern, refresh\n- Fixed JSON parsing to check String type before parsing\n- Improved error logging to identify response.data types\n- Better handling of Hubitat httpGet response.data variations",
+	"releaseNotes": "Oelo Lights Zone Driver v0.6.11\n- Support for 6 zones as separate virtual devices\n- Commands: off, setSelectedPattern, refresh\n- Added documentation of Hubitat Groovy sandbox restrictions\n- Documented unusable functions (getClass(), response.json)\n- Improved code maintainability with sandbox restriction notes",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
