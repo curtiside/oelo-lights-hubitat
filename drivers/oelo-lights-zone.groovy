@@ -109,7 +109,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.7.4
+ * @version 0.7.5
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -185,6 +185,7 @@ final Map PATTERNS = [
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
         capability "Refresh"
+        capability "Switch"
         
         // Custom attributes
         attribute "zone", "number"
@@ -199,6 +200,7 @@ metadata {
         // Custom commands
         command "setPattern"
         command "getPattern"
+        command "on"
         command "off"
     }
     
@@ -270,10 +272,10 @@ def updated() {
         def patternToRename = patterns.find { it && it.name == oldPatternName }
         if (!patternToRename) {
             // Pattern with old name doesn't exist - already renamed or never existed, skip
-            log.debug "Pattern '${oldPatternName}' not found - already renamed or doesn't exist, skipping rename action"
+            debugLog "Pattern '${oldPatternName}' not found - already renamed or doesn't exist, skipping rename action"
         } else if (patternToRename.name == newPatternName) {
             // Check if pattern already has the new name (no change needed)
-            log.debug "Pattern '${oldPatternName}' already has name '${newPatternName}', skipping rename action"
+            debugLog "Pattern '${oldPatternName}' already has name '${newPatternName}', skipping rename action"
         } else {
             log.warn "Preference action: Renaming pattern '${oldPatternName}' to '${newPatternName}'"
         log.info "Renaming pattern: '${oldPatternName}' to '${newPatternName}'"
@@ -330,7 +332,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.7.4"
+    def driverVersion = "0.7.5"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -427,6 +429,27 @@ def refresh() {
     poll()
 }
 
+// Custom command: Turn on lights (Switch capability)
+def on() {
+    log.warn "on() command called"
+    // Use last used pattern, or selected pattern from preferences, or first available pattern
+    def patternName = state.lastUsedPattern ?: settings.selectedPattern
+    if (patternName && patternName != "") {
+        logDebug "Turning zone ${zoneNumber} ON with pattern: ${patternName}"
+        setEffect(patternName)
+    } else {
+        // Try to use first available pattern if no last used or selected
+        def patterns = state.patterns ?: []
+        def firstPattern = patterns.find { it && it.name }
+        if (firstPattern) {
+            logDebug "Turning zone ${zoneNumber} ON with first available pattern: ${firstPattern.name}"
+            setEffect(firstPattern.name)
+        } else {
+            log.warn "No pattern available. Please capture a pattern using getPattern() command or select one in Preferences → Pattern Selection."
+        }
+    }
+}
+
 // Custom command: Turn off lights
 
 def off() {
@@ -468,6 +491,7 @@ def setEffect(String effectName) {
         sendEvent(name: "effectName", value: effectName)
         sendEvent(name: "lastCommand", value: patternUrl)
         sendEvent(name: "switch", value: "on")
+        state.lastUsedPattern = effectName  // Store for on() command
         logDebug "Pattern '${effectName}' set and stored"
     }
 }
@@ -489,64 +513,64 @@ def setPattern() {
 def getPattern() {
     log.warn "getPattern() command called"
     log.info "=== GET PATTERN COMMAND STARTED ==="
-    log.debug "[Step 1] Checking controller IP configuration..."
+    debugLog "[Step 1] Checking controller IP configuration..."
     
     if (!controllerIP) {
         log.error "[FAILED] Step 1: Controller IP not configured"
-        log.debug "=== GET PATTERN COMMAND FAILED ==="
+        debugLog "=== GET PATTERN COMMAND FAILED ==="
         return
     }
-    log.debug "[SUCCESS] Step 1: Controller IP configured: ${controllerIP}"
+    debugLog "[SUCCESS] Step 1: Controller IP configured: ${controllerIP}"
     
-    log.debug "[Step 2] Fetching zone data from controller..."
+    debugLog "[Step 2] Fetching zone data from controller..."
     // Fetch current zone state
     fetchZoneData { zoneData ->
-        log.debug "[Step 2] fetchZoneData callback received"
+        debugLog "[Step 2] fetchZoneData callback received"
         
         if (!zoneData) {
             log.error "[FAILED] Step 2: Could not retrieve zone data from controller (IP: ${controllerIP}, Zone: ${zoneNumber})"
-            log.debug "=== GET PATTERN COMMAND FAILED ==="
+            debugLog "=== GET PATTERN COMMAND FAILED ==="
             return
         }
-        log.debug "[SUCCESS] Step 2: Zone data retrieved"
-        log.debug "Zone data keys: ${zoneData.keySet()}"
-        log.debug "Zone data: ${zoneData}"
+        debugLog "[SUCCESS] Step 2: Zone data retrieved"
+        debugLog "Zone data keys: ${zoneData.keySet()}"
+        debugLog "Zone data: ${zoneData}"
         
-        log.debug "[Step 3] Extracting pattern information..."
+        debugLog "[Step 3] Extracting pattern information..."
         // Extract pattern information
         def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
-        log.debug "Pattern field value: '${zoneData.pattern}'"
-        log.debug "PatternType field value: '${zoneData.patternType}'"
-        log.debug "Extracted pattern: '${pattern}'"
+        debugLog "Pattern field value: '${zoneData.pattern}'"
+        debugLog "PatternType field value: '${zoneData.patternType}'"
+        debugLog "Extracted pattern: '${pattern}'"
         
-        log.debug "[Step 4] Determining if zone is on..."
+        debugLog "[Step 4] Determining if zone is on..."
         // Use isOn field from controller if available, otherwise infer from pattern
         def isOn = zoneData.isOn != null ? zoneData.isOn : (pattern != "off" && pattern != null && pattern.toString().trim() != "")
-        log.debug "zoneData.isOn field: ${zoneData.isOn}"
-        log.debug "Calculated isOn: ${isOn}"
+        debugLog "zoneData.isOn field: ${zoneData.isOn}"
+        debugLog "Calculated isOn: ${isOn}"
         
         if (pattern == "off" || !isOn) {
             log.warn "[FAILED] Step 4: Zone is currently off - no pattern to capture"
-            log.debug "Pattern check: pattern='${pattern}' (off=${pattern == "off"})"
-            log.debug "isOn check: isOn=${isOn}"
-            log.debug "=== GET PATTERN COMMAND FAILED ==="
+            debugLog "Pattern check: pattern='${pattern}' (off=${pattern == "off"})"
+            debugLog "isOn check: isOn=${isOn}"
+            debugLog "=== GET PATTERN COMMAND FAILED ==="
             return
         }
-        log.debug "[SUCCESS] Step 4: Zone is on with pattern '${pattern}'"
+        debugLog "[SUCCESS] Step 4: Zone is on with pattern '${pattern}'"
         
-        log.debug "[Step 5] Building URL parameters from zone data..."
+        debugLog "[Step 5] Building URL parameters from zone data..."
         // Build URL parameters from zone data
         def urlParams = buildPatternParamsFromZoneData(zoneData)
         if (!urlParams) {
             log.error "[FAILED] Step 5: Could not build pattern parameters from zone data"
-            log.debug "buildPatternParamsFromZoneData returned null"
-            log.debug "=== GET PATTERN COMMAND FAILED ==="
+            debugLog "buildPatternParamsFromZoneData returned null"
+            debugLog "=== GET PATTERN COMMAND FAILED ==="
             return
         }
-        log.debug "[SUCCESS] Step 5: URL parameters built"
-        log.debug "URL parameters: ${urlParams}"
+        debugLog "[SUCCESS] Step 5: URL parameters built"
+        debugLog "URL parameters: ${urlParams}"
         
-        log.debug "[Step 6] Generating stable pattern ID from fields..."
+        debugLog "[Step 6] Generating stable pattern ID from fields..."
         // Generate stable pattern ID from pattern type and key parameters
         // Available fields: pattern, name (zone name), num, numberOfColors, direction, speed, gap, rgbOrder
         // Use pattern type as base, add descriptive suffix if parameters are non-default
@@ -572,59 +596,59 @@ def getPattern() {
             patternId = "${pattern}_${suffixParts.join('_')}"
         }
         
-        log.debug "zoneData.name (zone name): '${zoneData.name}'"
-        log.debug "zoneData.pattern (pattern type): '${pattern}'"
-        log.debug "zoneData.direction: '${zoneData.direction}'"
-        log.debug "zoneData.speed: '${zoneData.speed}'"
-        log.debug "zoneData.numberOfColors: '${zoneData.numberOfColors}'"
-        log.debug "Generated stable pattern ID: '${patternId}'"
-        log.debug "[SUCCESS] Step 6: Stable pattern ID determined: '${patternId}'"
+        debugLog "zoneData.name (zone name): '${zoneData.name}'"
+        debugLog "zoneData.pattern (pattern type): '${pattern}'"
+        debugLog "zoneData.direction: '${zoneData.direction}'"
+        debugLog "zoneData.speed: '${zoneData.speed}'"
+        debugLog "zoneData.numberOfColors: '${zoneData.numberOfColors}'"
+        debugLog "Generated stable pattern ID: '${patternId}'"
+        debugLog "[SUCCESS] Step 6: Stable pattern ID determined: '${patternId}'"
         
-        log.debug "[Step 7] Retrieving patterns list from state..."
+        debugLog "[Step 7] Retrieving patterns list from state..."
         // Get patterns list
         def patterns = state.patterns ?: []
-        log.debug "Current patterns count: ${patterns.size()}"
-        log.debug "Patterns: ${patterns}"
-        log.debug "[SUCCESS] Step 7: Patterns list retrieved"
+        debugLog "Current patterns count: ${patterns.size()}"
+        debugLog "Patterns: ${patterns}"
+        debugLog "[SUCCESS] Step 7: Patterns list retrieved"
         
-        log.debug "[Step 7a] Setting initial display name..."
+        debugLog "[Step 7a] Setting initial display name..."
         // Use the stable ID as the initial display name (user can edit this later)
         def patternName = patternId
-        log.debug "Initial display name set to: '${patternName}'"
-        log.debug "[SUCCESS] Step 7a: Initial display name set"
+        debugLog "Initial display name set to: '${patternName}'"
+        debugLog "[SUCCESS] Step 7a: Initial display name set"
         
-        log.debug "[Step 8] Checking for existing pattern with same ID..."
+        debugLog "[Step 8] Checking for existing pattern with same ID..."
         // Check if a pattern with this ID already exists (prevents duplicates)
         def existingIndex = patterns.findIndexOf { it && it.id == patternId }
-        log.debug "Existing pattern search by ID: index=${existingIndex >= 0 ? existingIndex : 'not found'}"
+        debugLog "Existing pattern search by ID: index=${existingIndex >= 0 ? existingIndex : 'not found'}"
         
         if (existingIndex >= 0) {
-            log.debug "[Step 9] Pattern with same ID exists - updating parameters..."
+            debugLog "[Step 9] Pattern with same ID exists - updating parameters..."
             // Pattern with same ID exists - update urlParams but keep existing name (user may have renamed it)
             def existingName = patterns[existingIndex].name
             patterns[existingIndex].urlParams = urlParams
             state.patterns = patterns
             log.info "[SUCCESS] Step 9: Updated existing pattern '${existingName}' (ID: ${patternId}) with new parameters"
-            log.debug "Updated pattern: ${patterns[existingIndex]}"
-            log.debug "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
+            debugLog "Updated pattern: ${patterns[existingIndex]}"
+            debugLog "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         } else {
-            log.debug "[Step 9] Finding next empty slot for new pattern..."
+            debugLog "[Step 9] Finding next empty slot for new pattern..."
             // Find next empty slot for new pattern
             def nextSlot = findNextEmptyPatternSlot(patterns)
-            log.debug "Next empty slot: ${nextSlot >= 0 ? nextSlot : 'none found'}"
+            debugLog "Next empty slot: ${nextSlot >= 0 ? nextSlot : 'none found'}"
             
             if (nextSlot == -1) {
                 log.error "[FAILED] Step 9: No empty slots available (maximum 20 patterns)"
-                log.debug "Current patterns count: ${patterns.size()}"
-                log.debug "=== GET PATTERN COMMAND FAILED ==="
+                debugLog "Current patterns count: ${patterns.size()}"
+                debugLog "=== GET PATTERN COMMAND FAILED ==="
                 return
             }
-            log.debug "[SUCCESS] Step 9: Found empty slot ${nextSlot}"
+            debugLog "[SUCCESS] Step 9: Found empty slot ${nextSlot}"
             
-            log.debug "[Step 10] Storing new pattern in slot ${nextSlot}..."
+            debugLog "[Step 10] Storing new pattern in slot ${nextSlot}..."
             // Store new pattern with both ID (stable) and name (display)
             if (patterns.size() < nextSlot) {
-                log.debug "Extending patterns list from ${patterns.size()} to ${nextSlot}"
+                debugLog "Extending patterns list from ${patterns.size()} to ${nextSlot}"
                 // Extend list if needed
                 while (patterns.size() < nextSlot) {
                     patterns.add(null)
@@ -635,14 +659,14 @@ def getPattern() {
                 name: patternName,
                 urlParams: urlParams
             ]
-            log.debug "Pattern stored at index ${nextSlot - 1}: id='${patternId}', name='${patternName}'"
+            debugLog "Pattern stored at index ${nextSlot - 1}: id='${patternId}', name='${patternName}'"
             
             state.patterns = patterns
-            log.debug "State updated. New patterns count: ${state.patterns.size()}"
+            debugLog "State updated. New patterns count: ${state.patterns.size()}"
             
             log.info "[SUCCESS] Step 10: Stored new pattern '${patternName}' (ID: ${patternId}) in slot ${nextSlot}"
-            log.debug "Final patterns list: ${state.patterns}"
-            log.debug "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
+            debugLog "Final patterns list: ${state.patterns}"
+            debugLog "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         }
     }
 }
@@ -650,13 +674,13 @@ def getPattern() {
 
 // Build pattern URL parameters from zone data returned by getController
 def buildPatternParamsFromZoneData(Map zoneData) {
-    log.debug "buildPatternParamsFromZoneData: Starting with zoneData keys: ${zoneData.keySet()}"
+    debugLog "buildPatternParamsFromZoneData: Starting with zoneData keys: ${zoneData.keySet()}"
     
     def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
-    log.debug "buildPatternParamsFromZoneData: Extracted pattern: '${pattern}'"
+    debugLog "buildPatternParamsFromZoneData: Extracted pattern: '${pattern}'"
     
     if (pattern == "off") {
-        log.debug "buildPatternParamsFromZoneData: Pattern is 'off', returning null"
+        debugLog "buildPatternParamsFromZoneData: Pattern is 'off', returning null"
         return null
     }
     
@@ -665,7 +689,7 @@ def buildPatternParamsFromZoneData(Map zoneData) {
     def colorStr = zoneData.colorStr ?: ""
     def parsedColors = colorStr ? parseColorStr(colorStr) : "255,255,255"
     
-    log.debug "buildPatternParamsFromZoneData: numberOfColors=${numColors}, colorStr length=${colorStr.length()}, parsedColors=${parsedColors}"
+    debugLog "buildPatternParamsFromZoneData: numberOfColors=${numColors}, colorStr length=${colorStr.length()}, parsedColors=${parsedColors}"
     
     def params = [
         patternType: pattern,
@@ -680,7 +704,7 @@ def buildPatternParamsFromZoneData(Map zoneData) {
         pause: 0
     ]
     
-    log.debug "buildPatternParamsFromZoneData: Built params: ${params}"
+    debugLog "buildPatternParamsFromZoneData: Built params: ${params}"
     return params
 }
 
@@ -802,13 +826,13 @@ def getPatternOptions() {
 
 // Get pattern URL - handles patterns from state
 def getPatternUrl(String effectName) {
-    log.debug "getPatternUrl: Looking for effect '${effectName}'"
+    debugLog "getPatternUrl: Looking for effect '${effectName}'"
     
     // Check patterns from state
     def patterns = state.patterns ?: []
     def pattern = patterns.find { it && it.name == effectName }
     if (pattern && pattern.urlParams) {
-        log.debug "getPatternUrl: Found pattern '${effectName}'"
+        debugLog "getPatternUrl: Found pattern '${effectName}'"
         // Use stored URL parameters to build command URL
         def urlParams = pattern.urlParams.clone()
         urlParams.zones = zoneNumber  // Ensure zone number is current
@@ -859,7 +883,7 @@ def sendCommand(String url) {
                             log.error "Controller error response: ${errorData.toString()}"
                         }
                     } catch (Exception e) {
-                        log.debug "Could not parse error response: ${e.message}"
+                        debugLog "Could not parse error response: ${e.message}"
                     }
                 }
                 sendEvent(name: "verificationStatus", value: "error")
@@ -1135,7 +1159,7 @@ def fetchZoneData(Closure callback) {
     
     def url = "http://${controllerIP}/getController"
     logDebug "Fetching zone data: ${url}"
-    log.debug "HTTP request details: IP=${controllerIP}, timeout=${commandTimeout ?: 10}s"
+    debugLog "HTTP request details: IP=${controllerIP}, timeout=${commandTimeout ?: 10}s"
     
     try {
         httpGet([
@@ -1143,20 +1167,20 @@ def fetchZoneData(Closure callback) {
             timeout: (commandTimeout ?: 10) * 1000,
             requestContentType: "application/json"
         ]) { response ->
-            log.debug "HTTP response received: status=${response.status}"
+            debugLog "HTTP response received: status=${response.status}"
             if (response.status == 200) {
                 def zones = response.data
                 
                 // Debug: Log raw response data
-                log.debug "=== REFRESH/POLL RESPONSE DEBUG ==="
-                log.debug "Response status: ${response.status}"
+                debugLog "=== REFRESH/POLL RESPONSE DEBUG ==="
+                debugLog "Response status: ${response.status}"
                 // Note: Cannot use getClass() in Hubitat sandbox - use instanceof checks instead
-                log.debug "Response data (raw): ${zones?.toString()}"
+                debugLog "Response data (raw): ${zones?.toString()}"
                 
                 // If zones is already a List, use it directly
                 if (zones instanceof List) {
-                    log.debug "Response is already a List with ${zones.size()} zones"
-                    log.debug "Full zones array: ${zones}"
+                    debugLog "Response is already a List with ${zones.size()} zones"
+                    debugLog "Full zones array: ${zones}"
                     
                     def zoneData = zones.find { 
                         def zoneNum = it.num
@@ -1164,18 +1188,18 @@ def fetchZoneData(Closure callback) {
                     }
                     
                     if (zoneData) {
-                        log.debug "Found zone ${zoneNumber} data: ${zoneData}"
-                        log.debug "Zone data keys: ${zoneData.keySet()}"
-                        log.debug "Zone pattern field: '${zoneData.pattern}'"
-                        log.debug "Zone patternType field: '${zoneData.patternType}'"
-                        log.debug "Zone isOn field: ${zoneData.isOn}"
-                        log.debug "Zone enabled field: ${zoneData.enabled}"
-                        log.debug "Zone name field: '${zoneData.name}'"
-                        log.debug "=== END RESPONSE DEBUG ==="
+                        debugLog "Found zone ${zoneNumber} data: ${zoneData}"
+                        debugLog "Zone data keys: ${zoneData.keySet()}"
+                        debugLog "Zone pattern field: '${zoneData.pattern}'"
+                        debugLog "Zone patternType field: '${zoneData.patternType}'"
+                        debugLog "Zone isOn field: ${zoneData.isOn}"
+                        debugLog "Zone enabled field: ${zoneData.enabled}"
+                        debugLog "Zone name field: '${zoneData.name}'"
+                        debugLog "=== END RESPONSE DEBUG ==="
                     } else {
-                        log.debug "Zone ${zoneNumber} not found in response"
-                        log.debug "Available zones: ${zones.collect { it.num }}"
-                        log.debug "=== END RESPONSE DEBUG ==="
+                        debugLog "Zone ${zoneNumber} not found in response"
+                        debugLog "Available zones: ${zones.collect { it.num }}"
+                        debugLog "=== END RESPONSE DEBUG ==="
                     }
                     
                     if (callback) callback(zoneData)
@@ -1184,40 +1208,40 @@ def fetchZoneData(Closure callback) {
                 
                 // If it's a String, parse it as JSON
                 if (zones instanceof String) {
-                    log.debug "Response is a String, parsing JSON..."
-                    log.debug "String content: ${zones}"
+                    debugLog "Response is a String, parsing JSON..."
+                    debugLog "String content: ${zones}"
                     try {
                         zones = new groovy.json.JsonSlurper().parseText(zones)
-                        log.debug "Successfully parsed JSON string to List"
+                        debugLog "Successfully parsed JSON string to List"
                         
                         if (zones instanceof List) {
-                            log.debug "Parsed List with ${zones.size()} zones: ${zones}"
+                            debugLog "Parsed List with ${zones.size()} zones: ${zones}"
                             def zoneData = zones.find { 
                                 def zoneNum = it.num
                                 zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
                             }
                             
                             if (zoneData) {
-                                log.debug "Found zone ${zoneNumber} data: ${zoneData}"
-                                log.debug "Zone data keys: ${zoneData.keySet()}"
-                                log.debug "Zone pattern field: '${zoneData.pattern}'"
-                                log.debug "Zone patternType field: '${zoneData.patternType}'"
-                                log.debug "Zone isOn field: ${zoneData.isOn}"
-                                log.debug "=== END RESPONSE DEBUG ==="
+                                debugLog "Found zone ${zoneNumber} data: ${zoneData}"
+                                debugLog "Zone data keys: ${zoneData.keySet()}"
+                                debugLog "Zone pattern field: '${zoneData.pattern}'"
+                                debugLog "Zone patternType field: '${zoneData.patternType}'"
+                                debugLog "Zone isOn field: ${zoneData.isOn}"
+                                debugLog "=== END RESPONSE DEBUG ==="
                             } else {
-                                log.debug "Zone ${zoneNumber} not found in parsed response"
-                                log.debug "=== END RESPONSE DEBUG ==="
+                                debugLog "Zone ${zoneNumber} not found in parsed response"
+                                debugLog "=== END RESPONSE DEBUG ==="
                             }
                             
                             if (callback) callback(zoneData)
                         } else {
                             log.error "Parsed JSON string but result is not a List: ${zones}"
-                            log.debug "=== END RESPONSE DEBUG ==="
+                            debugLog "=== END RESPONSE DEBUG ==="
                             if (callback) callback(null)
                         }
                     } catch (Exception e) {
                         log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
-                        log.debug "=== END RESPONSE DEBUG ==="
+                        debugLog "=== END RESPONSE DEBUG ==="
                         if (callback) callback(null)
                     }
                     return
@@ -1263,7 +1287,7 @@ def fetchZoneData(Closure callback) {
                             log.error "Controller error response: ${errorData.toString()}"
                         }
                     } catch (Exception e) {
-                        log.debug "Could not parse error response: ${e.message}"
+                        debugLog "Could not parse error response: ${e.message}"
                     }
                 }
                 if (callback) callback(null)
@@ -1355,25 +1379,25 @@ def buildCommandUrl(Map params) {
 
 def updateZoneState(Map zoneData) {
     if (!zoneData) {
-        log.debug "updateZoneState called with null zoneData"
+        debugLog "updateZoneState called with null zoneData"
         return
     }
     
-    log.debug "=== UPDATE ZONE STATE DEBUG ==="
-    log.debug "Raw zoneData: ${zoneData}"
-    log.debug "zoneData keys: ${zoneData.keySet()}"
-    log.debug "zoneData.pattern: '${zoneData.pattern}'"
-    log.debug "zoneData.patternType: '${zoneData.patternType}'"
-    log.debug "zoneData.isOn: ${zoneData.isOn}"
+    debugLog "=== UPDATE ZONE STATE DEBUG ==="
+    debugLog "Raw zoneData: ${zoneData}"
+    debugLog "zoneData keys: ${zoneData.keySet()}"
+    debugLog "zoneData.pattern: '${zoneData.pattern}'"
+    debugLog "zoneData.patternType: '${zoneData.patternType}'"
+    debugLog "zoneData.isOn: ${zoneData.isOn}"
     
     // Extract pattern - handle different possible field names
     def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
     // Use isOn field from controller if available, otherwise infer from pattern
     def isOn = zoneData.isOn != null ? zoneData.isOn : (pattern != "off" && pattern != null && pattern.toString().trim() != "")
     
-    log.debug "Extracted pattern: '${pattern}'"
-    log.debug "Calculated isOn: ${isOn}"
-    log.debug "Pattern comparison: pattern='${pattern}', pattern != 'off' = ${pattern != 'off'}, pattern != null = ${pattern != null}, pattern.trim() != '' = ${pattern?.toString()?.trim() != ''}"
+    debugLog "Extracted pattern: '${pattern}'"
+    debugLog "Calculated isOn: ${isOn}"
+    debugLog "Pattern comparison: pattern='${pattern}', pattern != 'off' = ${pattern != 'off'}, pattern != null = ${pattern != null}, pattern.trim() != '' = ${pattern?.toString()?.trim() != ''}"
     
     logDebug "Updating zone state - pattern: '${pattern}', isOn: ${isOn}"
     
@@ -1387,13 +1411,13 @@ def updateZoneState(Map zoneData) {
     def effectName = null
     if (isOn && pattern != "off" && pattern != "custom") {
         effectName = findEffectName(pattern.toString())
-        log.debug "Effect name lookup for pattern '${pattern}': ${effectName ?: 'not found'}"
+        debugLog "Effect name lookup for pattern '${pattern}': ${effectName ?: 'not found'}"
     }
     
     // Always set effectName (null if not found or off)
     sendEvent(name: "effectName", value: effectName ?: "")
     
-    log.debug "=== END UPDATE ZONE STATE DEBUG ==="
+    debugLog "=== END UPDATE ZONE STATE DEBUG ==="
 }
 
 def findEffectName(String patternType) {
@@ -1475,8 +1499,15 @@ def hsvToRgb(int h, int s, int v) {
 // Logging
 
 def logDebug(String msg) {
-    if (logEnable) {
-        log.debug "[Zone ${zoneNumber}] ${msg}"
+    if (settings.logEnable) {
+        debugLog "[Zone ${zoneNumber}] ${msg}"
+    }
+}
+
+// Simple debug logging wrapper that checks logEnable preference
+def debugLog(String msg) {
+    if (settings.logEnable) {
+        log.debug msg
     }
 }
 
