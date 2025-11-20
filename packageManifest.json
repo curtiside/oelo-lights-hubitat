@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.6.5",
+	"version": "0.6.6",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.6.5\n- Support for 6 zones as separate virtual devices.\n- Commands: off, setSelectedPattern, refresh\n- Fixed JSON response parsing for refresh/poll\n- Improved error handling and fallback parsing\n- Automatic driver version updates on refresh\n- Better zone state detection from controller",
+	"releaseNotes": "Oelo Lights Zone Driver v0.6.6\n- Support for 6 zones as separate virtual devices\n- Commands: off, setSelectedPattern, refresh\n- Fixed JSON response parsing - always parse if not List\n- Refresh now sets lastCommand attribute\n- Improved zone state detection and pattern discovery",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",

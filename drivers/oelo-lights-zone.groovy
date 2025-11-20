@@ -13,7 +13,7 @@
  * https://github.com/Cinegration/Oelo_Lights_HA
  * 
  * @author Curtis Ide
- * @version 0.6.5
+ * @version 0.6.6
  */
 
 metadata {
@@ -101,7 +101,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.6.5"
+    def driverVersion = "0.6.6"
     // Always update version if it's different (handles code updates without preference save)
     if (state.driverVersion != driverVersion) {
         state.driverVersion = driverVersion
@@ -186,6 +186,9 @@ def refresh() {
     
     // Ensure driver version is current (in case code was updated)
     setDriverVersion()
+    
+    // Update lastCommand to show refresh was called
+    sendEvent(name: "lastCommand", value: "refresh")
     
     if (!controllerIP) {
         log.error "Cannot refresh: Controller IP not configured"
@@ -690,24 +693,25 @@ def poll() {
             if (response.status == 200) {
                 def zones = response.data
                 
-                // Parse JSON if response.data is a string
-                if (zones instanceof String) {
-                    try {
-                        zones = new groovy.json.JsonSlurper().parseText(zones)
-                        logDebug "Parsed JSON string to List"
-                    } catch (Exception e) {
-                        log.error "Failed to parse JSON response: ${e.message}"
-                        return
+                // Try parsing as JSON string first (most common case in Hubitat)
+                if (!(zones instanceof List)) {
+                    def zonesStr = zones?.toString() ?: ""
+                    if (zonesStr.trim().startsWith("[")) {
+                        try {
+                            zones = new groovy.json.JsonSlurper().parseText(zonesStr)
+                            logDebug "Parsed JSON string to List"
+                        } catch (Exception e) {
+                            log.error "Failed to parse JSON response: ${e.message}"
+                            return
+                        }
+                    } else if (zones instanceof Map && zones.data) {
+                        // Handle case where response.data might be a Map with a data field
+                        zones = zones.data
+                        logDebug "Extracted data from Map"
                     }
                 }
                 
-                // Handle case where response.data might be a Map with a data field
-                if (zones instanceof Map && zones.data) {
-                    zones = zones.data
-                    logDebug "Extracted data from Map"
-                }
-                
-                // Convert to List if it's an array-like structure
+                // Now zones should be a List
                 if (zones instanceof List) {
                     // Find zone - handle both integer and string zone numbers
                     def zoneData = zones.find { 
@@ -721,26 +725,7 @@ def poll() {
                         log.warn "Zone ${zoneNumber} not found in response. Available zones: ${zones.collect { it.num }}"
                     }
                 } else {
-                    // Try to parse as JSON string if it's not already a List
-                    if (zones && zones.toString().trim().startsWith("[")) {
-                        try {
-                            zones = new groovy.json.JsonSlurper().parseText(zones.toString())
-                            logDebug "Parsed zones from string representation"
-                            // Retry with parsed data
-                            def zoneData = zones.find { 
-                                def zoneNum = it.num
-                                zoneNum == zoneNumber || zoneNum.toString() == zoneNumber.toString()
-                            }
-                            if (zoneData) {
-                                logDebug "Poll response for zone ${zoneNumber}: pattern='${zoneData.pattern}', isOn=${zoneData.isOn}"
-                                updateZoneState(zoneData)
-                                return
-                            }
-                        } catch (Exception e) {
-                            log.error "Failed to parse zones as JSON: ${e.message}"
-                        }
-                    }
-                    log.error "Invalid response format - expected List. Response: ${zones}"
+                    log.error "Invalid response format - expected List after parsing. Got: ${zones}"
                 }
             } else {
                 log.error "Poll failed with status: ${response.status}"
