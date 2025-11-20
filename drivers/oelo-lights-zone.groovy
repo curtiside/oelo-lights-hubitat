@@ -30,6 +30,7 @@ metadata {
         attribute "lastCommand", "string"
         attribute "effectList", "string"
         attribute "verificationStatus", "string"
+        attribute "discoveredPatterns", "string"
     }
     
     preferences {
@@ -44,12 +45,12 @@ metadata {
         }
         
         section("Custom Patterns") {
-            for (i in 1..20) {
-                input name: "customPattern${i}Name", type: "text", title: "Custom Pattern ${i} Name", description: "Name for custom pattern (e.g., 'My Red Lights')", required: false
-                input name: "customPattern${i}Red", type: "number", title: "Custom Pattern ${i} - Red", range: "0..255", defaultValue: 255, description: "Red value (0-255)", required: false
-                input name: "customPattern${i}Green", type: "number", title: "Custom Pattern ${i} - Green", range: "0..255", defaultValue: 255, description: "Green value (0-255)", required: false
-                input name: "customPattern${i}Blue", type: "number", title: "Custom Pattern ${i} - Blue", range: "0..255", defaultValue: 255, description: "Blue value (0-255)", required: false
-            }
+            input name: "customPattern1Name", type: "text", title: "Custom Pattern 1 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern2Name", type: "text", title: "Custom Pattern 2 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern3Name", type: "text", title: "Custom Pattern 3 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern4Name", type: "text", title: "Custom Pattern 4 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern5Name", type: "text", title: "Custom Pattern 5 Name", description: "Pattern name as stored on controller", required: false
+            input name: "customPattern6Name", type: "text", title: "Custom Pattern 6 Name", description: "Pattern name as stored on controller", required: false
         }
         
         section("Command Verification") {
@@ -204,8 +205,9 @@ def setLevel(level, duration = null) {
     logDebug "Setting level to ${level}%"
     
     // Get current color
-    def hue = device.currentValue("hue") ?: 0
-    def saturation = device.currentValue("saturation") ?: 0
+    def hue = toIntSafe(device.currentValue("hue"), 0)
+    def saturation = toIntSafe(device.currentValue("saturation"), 0)
+    level = toIntSafe(level, 100)
     
     // Convert to RGB and scale by brightness
     def rgb = hsvToRgb(hue, saturation, level)
@@ -224,9 +226,9 @@ def setColor(Map colorMap) {
     
     // If HSV provided, convert to RGB
     if (colorMap.hue != null || colorMap.saturation != null || colorMap.level != null) {
-        def h = colorMap.hue ?: device.currentValue("hue") ?: 0
-        def s = colorMap.saturation ?: device.currentValue("saturation") ?: 0
-        def v = colorMap.level ?: device.currentValue("level") ?: 100
+        def h = toIntSafe(colorMap.hue ?: device.currentValue("hue"), 0)
+        def s = toIntSafe(colorMap.saturation ?: device.currentValue("saturation"), 0)
+        def v = toIntSafe(colorMap.level ?: device.currentValue("level"), 100)
         
         def rgb = hsvToRgb(h, s, v)
         red = rgb[0]
@@ -269,14 +271,16 @@ def setColor(Map colorMap) {
 }
 
 def setHue(hue) {
-    def saturation = device.currentValue("saturation") ?: 0
-    def level = device.currentValue("level") ?: 100
+    def saturation = toIntSafe(device.currentValue("saturation"), 0)
+    def level = toIntSafe(device.currentValue("level"), 100)
+    hue = toIntSafe(hue, 0)
     setColor([hue: hue, saturation: saturation, level: level])
 }
 
 def setSaturation(saturation) {
-    def hue = device.currentValue("hue") ?: 0
-    def level = device.currentValue("level") ?: 100
+    def hue = toIntSafe(device.currentValue("hue"), 0)
+    def level = toIntSafe(device.currentValue("level"), 100)
+    saturation = toIntSafe(saturation, 0)
     setColor([hue: hue, saturation: saturation, level: level])
 }
 
@@ -316,7 +320,7 @@ def buildEffectList() {
     }
     
     // Add custom patterns (if names are set)
-    for (int i = 1; i <= 20; i++) {
+    for (int i = 1; i <= 6; i++) {
         def name = settings."customPattern${i}Name"
         if (name && name.trim()) {
             list.add(name.trim())
@@ -336,28 +340,27 @@ def getPatternUrl(String effectName) {
         return "http://${controllerIP}/${url}"
     }
     
-    // Check custom patterns
-    for (int i = 1; i <= 20; i++) {
+    // Check custom patterns - use pattern name as patternType
+    for (int i = 1; i <= 6; i++) {
         def customName = settings."customPattern${i}Name"
         if (customName && customName.trim() == effectName) {
-            def red = settings."customPattern${i}Red" ?: 255
-            def green = settings."customPattern${i}Green" ?: 255
-            def blue = settings."customPattern${i}Blue" ?: 255
-            return buildCustomColorUrl(red, green, blue)
+            // Use the pattern name as patternType - controller has pattern settings stored
+            return buildPatternUrl(customName.trim())
         }
     }
     
     return null
 }
 
-// Build URL for custom color pattern
-def buildCustomColorUrl(int red, int green, int blue) {
+// Build URL for pattern (uses pattern name as patternType - controller has settings stored)
+def buildPatternUrl(String patternName) {
+    // Use minimal parameters - controller uses its stored settings for the pattern
     def url = buildCommandUrl([
-        patternType: "custom",
+        patternType: patternName,
         zones: zoneNumber,
         num_zones: 1,
         num_colors: 1,
-        colors: "${red},${green},${blue}",
+        colors: "255,255,255",  // Placeholder - controller uses stored pattern settings
         direction: "F",
         speed: 0,
         gap: 0,
@@ -471,6 +474,18 @@ def getCurrentZoneStateForVerification(String commandUrl, int attempt, int maxRe
         ]) { response ->
             if (response.status == 200) {
                 def zones = response.data
+                
+                // Parse JSON if response.data is a string
+                if (zones instanceof String) {
+                    try {
+                        zones = new groovy.json.JsonSlurper().parseText(zones)
+                    } catch (Exception e) {
+                        log.error "Failed to parse JSON response for verification: ${e.message}"
+                        handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+                        return
+                    }
+                }
+                
                 if (zones instanceof List) {
                     def zoneData = zones.find { it.num == zoneNumber }
                     if (zoneData) {
@@ -694,6 +709,17 @@ def poll() {
         ]) { response ->
             if (response.status == 200) {
                 def zones = response.data
+                
+                // Parse JSON if response.data is a string
+                if (zones instanceof String) {
+                    try {
+                        zones = new groovy.json.JsonSlurper().parseText(zones)
+                    } catch (Exception e) {
+                        log.error "Failed to parse JSON response: ${e.message}"
+                        return
+                    }
+                }
+                
                 if (zones instanceof List) {
                     def zoneData = zones.find { it.num == zoneNumber }
                     if (zoneData) {
@@ -721,6 +747,17 @@ def poll() {
 
 // Helper Methods
 
+// Safely convert a value to integer (handles null, empty string, and already-numeric values)
+def toIntSafe(value, defaultValue = 0) {
+    if (value == null || value == "") return defaultValue
+    if (value instanceof Integer || value instanceof Long) return value.intValue()
+    try {
+        return value.toString().toInteger()
+    } catch (Exception e) {
+        return defaultValue
+    }
+}
+
 def buildCommandUrl(Map params) {
     def query = params.collect { k, v -> "${k}=${URLEncoder.encode(v.toString(), "UTF-8")}" }.join("&")
     return "http://${controllerIP}/setPattern?${query}"
@@ -731,6 +768,17 @@ def updateZoneState(Map zoneData) {
     def isOn = pattern != "off"
     
     sendEvent(name: "switch", value: isOn ? "on" : "off")
+    
+    // Track discovered patterns from controller
+    if (pattern && pattern != "off" && pattern != "custom") {
+        if (!state.discoveredPatterns) {
+            state.discoveredPatterns = []
+        }
+        if (!state.discoveredPatterns.contains(pattern)) {
+            state.discoveredPatterns.add(pattern)
+            logDebug "Discovered pattern from controller: ${pattern}"
+        }
+    }
     
     if (isOn && pattern != "custom") {
         // Try to match pattern to effect name
