@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.8.2",
+	"version": "0.8.3",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.8.2\n- Increased pattern capacity from 20 to 200 patterns\n- Added support for spotlight plans and non-spotlight plans with automatic type detection\n- Added Spotlight Plan Lights setting to customize which LEDs are active in spotlight patterns\n- Added pattern validation (colors string and complete URL validation)\n- Added no-op detection for non-spotlight plans\n- Pattern type displayed in pattern lists and dropdowns\n- Improved pattern management with lazy plan type evaluation for backward compatibility\n- Full validation error logging for debugging\n- Improved Spotlight Plan Lights preference display with word wrapping",
+	"releaseNotes": "Oelo Lights Zone Driver v0.8.3\n- Fixed spotlight plan modification to use full LED count (maxLeds) instead of RGB triplet count\n- Fixed pattern ID generation to exclude numberOfColors for spotlight patterns\n- Fixed modifySpotlightPlan to handle LEDs beyond original colors array\n- Increased pattern capacity from 20 to 200 patterns\n- Added support for spotlight plans and non-spotlight plans with automatic type detection\n- Added Spotlight Plan Lights setting to customize which LEDs are active in spotlight patterns\n- Added pattern validation (colors string and complete URL validation)\n- Added no-op detection for non-spotlight plans\n- Pattern type displayed in pattern lists and dropdowns\n- Improved pattern management with lazy plan type evaluation for backward compatibility\n- Full validation error logging for debugging\n- Improved Spotlight Plan Lights preference display with word wrapping",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",

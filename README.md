@@ -52,7 +52,7 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 - **Auto Polling**: Automatically poll controller status (default: enabled)
 - **Patterns**: Capture and manage up to 200 patterns (see [Patterns](#patterns) below)
 - **Spotlight Plan Lights**: Comma-delimited list of LED indices to turn on for spotlight plans (e.g., "1,2,3,4,8,9,10,11")
-- **Max LEDs**: Maximum number of LEDs in this zone (default: 156)
+- **Max LEDs**: Maximum number of LEDs in this zone (default: 500)
 - **Debug Logging**: Enable detailed logging for troubleshooting
 - **Command Timeout**: HTTP request timeout (default: 10 seconds)
 
@@ -272,7 +272,7 @@ For issues, questions, or contributions:
 
 ## Version History
 
-### Version 0.8.1 (Current)
+### Version 0.8.3 (Current)
 - Increased pattern capacity from 20 to 200 patterns
 - Added support for spotlight plans and non-spotlight plans with automatic type detection
 - Added Spotlight Plan Lights setting to customize which LEDs are active in spotlight patterns

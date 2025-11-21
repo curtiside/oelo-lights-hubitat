@@ -115,7 +115,7 @@
  */
 
 // Constants
-final String DRIVER_VERSION = "0.8.2"  // Driver version
+final String DRIVER_VERSION = "0.8.3"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
@@ -208,6 +208,7 @@ metadata {
         // Custom commands
         command "setPattern"
         command "getPattern"
+        command "loadPredefinedPatterns"
         command "on"
         command "off"
     }
@@ -400,7 +401,8 @@ def updated() {
                 def colors = pattern.originalColors ?: urlParams.colors ?: ""
                 
                 if (normalized && normalized.trim() != "") {
-                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors.toInteger())
+                    def maxLeds = (settings.maxLeds ?: MAX_LEDS).toInteger()
+                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors.toInteger(), maxLeds)
                     urlParams.colors = modifiedColors
                     patterns[index] = pattern
                     modifiedCount++
@@ -453,6 +455,9 @@ def initialize() {
     
     // Migrate old settings-based patterns to state (one-time migration)
     migrateOldPatterns()
+    
+    // Load predefined patterns from PATTERNS map (one-time)
+    doLoadPredefinedPatterns()
     
     // Update available patterns attribute
     updateAvailablePatternsAttribute()
@@ -645,6 +650,15 @@ def setPattern(String patternName = null) {
     setEffect(selectedPattern)
 }
 
+// Custom command: Load predefined patterns from PATTERNS map
+def loadPredefinedPatterns() {
+    log.info "loadPredefinedPatterns() command called"
+    // Reset the marker to allow reloading
+    state.predefinedPatternsLoaded = false
+    doLoadPredefinedPatterns()
+    log.info "Predefined patterns loading completed"
+}
+
 // Custom command: Get current pattern from controller and store it
 def getPattern() {
     log.warn "getPattern() command called"
@@ -746,9 +760,11 @@ def getPattern() {
             
             // Modify colors array based on spotlightPlanLights
             if (spotlightLights && spotlightLights.trim() != "") {
-                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors.toInteger())
+                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors.toInteger(), maxLeds)
                 urlParams.colors = modifiedColors
-                debugLog "Modified spotlight plan colors using LED indices: ${spotlightLights}"
+                // Update num_colors to match the new array size
+                urlParams.num_colors = maxLeds.toString()
+                debugLog "Modified spotlight plan colors using LED indices: ${spotlightLights} (created ${maxLeds} RGB triplets)"
             }
         }
         
@@ -768,7 +784,9 @@ def getPattern() {
         if (zoneData.speed && zoneData.speed != 0) {
             suffixParts.add("spd${zoneData.speed}")
         }
-        if (zoneData.numberOfColors && zoneData.numberOfColors > 1) {
+        // Don't include numberOfColors for spotlight patterns since they can be modified to different LED counts
+        // For non-spotlight patterns, numberOfColors represents the actual pattern size
+        if (planType != "spotlight" && zoneData.numberOfColors && zoneData.numberOfColors > 1) {
             suffixParts.add("${zoneData.numberOfColors}colors")
         }
         
@@ -1163,7 +1181,9 @@ def extractOnLedsFromPlan(String colors, int numColors) {
 }
 
 // Modify spotlight plan colors array based on spotlightPlanLights setting
-def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
+// numColors is the number of RGB triplets in the original colors array
+// maxLeds is the actual number of LEDs in the zone (used to create full array)
+def modifySpotlightPlan(String colors, String spotlightLights, int numColors, int maxLeds) {
     if (!colors || colors.trim() == "") {
         return colors
     }
@@ -1182,16 +1202,14 @@ def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
             }
         }
         
-        // Initialize new colors array: all LEDs OFF
+        // Initialize new colors array: all LEDs OFF (use maxLeds for full zone size)
         def newColors = []
-        for (int i = 0; i < numColors; i++) {
+        for (int i = 0; i < maxLeds; i++) {
             newColors.add([r: 0, g: 0, b: 0])
         }
         
         // Parse spotlight LED indices
-        // Note: numColors is RGB triplets in colors array, but we need actual LED count for normalization
-        // Use preference if set, otherwise use constant (ensure integer type)
-        def maxLeds = (settings.maxLeds ?: MAX_LEDS).toInteger()
+        // maxLeds is passed as parameter (actual LED count in zone)
         def ledIndices = []
         if (spotlightLights && spotlightLights.trim() != "") {
             def normalized = normalizeLedIndices(spotlightLights, maxLeds)
@@ -1210,9 +1228,16 @@ def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
         ledIndices.each { ledIndex ->
             // Convert 1-based index to 0-based array index
             def arrayIndex = ledIndex - 1
-            if (arrayIndex >= 0 && arrayIndex < originalColors.size() && arrayIndex < newColors.size()) {
-                // Use RGB values from original plan
-                newColors[arrayIndex] = originalColors[arrayIndex]
+            if (arrayIndex >= 0 && arrayIndex < newColors.size()) {
+                // Use RGB values from original plan if available, otherwise use first color or default
+                if (arrayIndex < originalColors.size()) {
+                    // LED index is within original colors array - use that color
+                    newColors[arrayIndex] = originalColors[arrayIndex]
+                } else if (originalColors.size() > 0) {
+                    // LED index is beyond original colors array - use first color from original
+                    newColors[arrayIndex] = originalColors[0]
+                }
+                // If originalColors is empty, LED remains OFF (already initialized)
             }
         }
         
@@ -1224,9 +1249,9 @@ def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
         
         def result = colorStrings.join(",")
         
-        // Validate the result
-        if (!validateColorsString(result, numColors)) {
-            log.error "Invalid colors string generated: expected ${numColors} RGB triplets, got ${colorStrings.size()}"
+        // Validate the result (use maxLeds for validation since that's the actual array size)
+        if (!validateColorsString(result, maxLeds)) {
+            log.error "Invalid colors string generated: expected ${maxLeds} RGB triplets, got ${colorStrings.size()}"
             log.error "Generated colors string (full): ${result}"
             // Return original colors if validation fails
             return colors
@@ -1426,6 +1451,104 @@ def migrateOldPatterns() {
     }
 }
 
+// Load predefined patterns from PATTERNS map into state.patterns
+def doLoadPredefinedPatterns() {
+    // Check if already loaded (check for a marker in state)
+    if (state.predefinedPatternsLoaded) {
+        debugLog "Predefined patterns already loaded, skipping"
+        return
+    }
+    
+    def patterns = state.patterns ?: []
+    def loadedCount = 0
+    
+    PATTERNS.each { patternName, patternUrl ->
+        // Check if pattern already exists (by name)
+        def existingPattern = patterns.find { it && it.name == patternName }
+        if (existingPattern) {
+            debugLog "Pattern '${patternName}' already exists, skipping"
+            return
+        }
+        
+        // Parse pattern URL string to extract parameters
+        // Format: "setPattern?patternType=march&zones={zone}&num_zones=1&num_colors=6&colors=...&direction=R&speed=1&gap=0&other=0&pause=0"
+        def urlParams = parseUrlParams(patternUrl.replace("{zone}", zoneNumber.toString()))
+        
+        if (!urlParams || urlParams.isEmpty()) {
+            log.warn "Could not parse pattern URL for '${patternName}', skipping"
+            return
+        }
+        
+        // Determine plan type
+        def patternType = urlParams.patternType ?: "unknown"
+        def planType = identifyPlanType(patternType)
+        
+        // Generate stable pattern ID
+        def patternId = generatePatternId(patternName, urlParams)
+        
+        // Find next empty slot
+        def nextSlot = findNextEmptyPatternSlot(patterns)
+        if (nextSlot < 0) {
+            log.warn "No empty slots available for predefined pattern '${patternName}' (max 200 patterns)"
+            return
+        }
+        
+        // Extend patterns list if needed
+        if (patterns.size() < nextSlot) {
+            while (patterns.size() < nextSlot) {
+                patterns.add(null)
+            }
+        }
+        
+        // Create pattern object
+        def patternObj = [
+            id: patternId,
+            name: patternName,
+            urlParams: urlParams,
+            planType: planType
+        ]
+        
+        // Store pattern
+        patterns[nextSlot - 1] = patternObj
+        loadedCount++
+        debugLog "Loaded predefined pattern '${patternName}' (ID: ${patternId}, planType: ${planType})"
+    }
+    
+    if (loadedCount > 0) {
+        state.patterns = patterns
+        state.predefinedPatternsLoaded = true
+        updateAvailablePatternsAttribute()
+        log.info "Loaded ${loadedCount} predefined patterns from PATTERNS map"
+    } else {
+        state.predefinedPatternsLoaded = true  // Mark as loaded even if none were added
+        debugLog "No new predefined patterns to load (all already exist or no slots available)"
+    }
+}
+
+// Generate stable pattern ID from pattern name and URL parameters
+def generatePatternId(String patternName, Map urlParams) {
+    // Use pattern name as base, but make it URL-safe
+    def baseId = patternName.replaceAll("[^a-zA-Z0-9]", "_").toLowerCase()
+    
+    // Add key parameters to make it unique
+    def suffixParts = []
+    if (urlParams.direction && urlParams.direction != "0" && urlParams.direction != "F") {
+        suffixParts.add("dir${urlParams.direction}")
+    }
+    if (urlParams.speed && urlParams.speed != "0") {
+        suffixParts.add("spd${urlParams.speed}")
+    }
+    if (urlParams.num_colors && urlParams.num_colors.toInteger() > 1) {
+        suffixParts.add("${urlParams.num_colors}colors")
+    }
+    
+    if (suffixParts.isEmpty()) {
+        return baseId
+    } else {
+        return "${baseId}_${suffixParts.join('_')}"
+    }
+}
+
 def getEffectList() {
     // Return sorted list for Simple Automation Rules dropdown
     return buildEffectList()
@@ -1563,9 +1686,11 @@ def getPatternUrl(String effectName) {
             // Normalize and modify
             def normalized = normalizeLedIndices(spotlightLights, maxLeds.toInteger())
             if (normalized && normalized.trim() != "") {
-                def modifiedColors = modifySpotlightPlan(colors, normalized, numColors.toInteger())
+                def modifiedColors = modifySpotlightPlan(colors, normalized, numColors, maxLeds.toInteger())
                 urlParams.colors = modifiedColors
-                debugLog "Modified spotlight plan on use with LED indices: ${normalized}"
+                // Update num_colors to match the new array size
+                urlParams.num_colors = maxLeds.toString()
+                debugLog "Modified spotlight plan on use with LED indices: ${normalized} (created ${maxLeds} RGB triplets)"
             }
         }
         
