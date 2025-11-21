@@ -112,7 +112,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.8.0
+ * @version 0.8.1
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -538,7 +538,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.8.0"
+    def driverVersion = "0.8.1"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -830,6 +830,7 @@ def getPattern() {
         // Generate stable pattern ID from pattern type and key parameters
         // Available fields: pattern, name (zone name), num, numberOfColors, direction, speed, gap, rgbOrder
         // Use pattern type as base, add descriptive suffix if parameters are non-default
+        // Note: Zone number is not included since each device instance is zone-specific
         // This ID is stable and prevents duplicates - same parameters = same ID
         def patternId = pattern.toString()
         
@@ -845,7 +846,7 @@ def getPattern() {
             suffixParts.add("${zoneData.numberOfColors}colors")
         }
         
-        // Build stable ID from pattern type and parameters (no timestamp)
+        // Build stable ID from pattern type and parameters (no timestamp, no zone - device is zone-specific)
         if (suffixParts.isEmpty()) {
             patternId = pattern.toString()
         } else {
@@ -1104,6 +1105,7 @@ def processPatternString(String patternString) {
         checkPlanStringLength(patternString, patternType)
         
         // Generate stable pattern ID from parameters
+        // Note: Zone number is not included since each device instance is zone-specific
         def patternId = patternType.toString()
         def suffixParts = []
         if (urlParams.direction && urlParams.direction != "0" && urlParams.direction != "F") {
@@ -1116,6 +1118,7 @@ def processPatternString(String patternString) {
             suffixParts.add("${urlParams.num_colors}colors")
         }
         
+        // Build stable ID from pattern type and parameters (no zone - device is zone-specific)
         if (suffixParts.isEmpty()) {
             patternId = patternType.toString()
         } else {
@@ -1130,17 +1133,14 @@ def processPatternString(String patternString) {
         
         if (existingIndex >= 0) {
             def existingName = patterns[existingIndex].name ?: patternId
-            // Store original colors for spotlight plans
-            def originalColors = null
-            if (planType == "spotlight" && urlParams.colors) {
-                originalColors = urlParams.colors
-            }
+            // originalColors is already declared earlier in function scope (line 1065)
+            // It was set before modification, so use it directly
             patterns[existingIndex] = [
                 id: patternId,
                 name: existingName,
                 urlParams: urlParams,
                 planType: planType,
-                originalColors: originalColors
+                originalColors: originalColors  // Already set earlier before modification
             ]
             state.patterns = patterns
             updateAvailablePatternsAttribute()
@@ -1339,6 +1339,10 @@ def checkPlanStringLength(String patternString, String patternName) {
 
 // Get display value for spotlightPlanLights preference
 def getSpotlightPlanLightsDisplay() {
+    // Handle null settings during metadata parsing
+    if (!settings) {
+        return "Not set (will auto-extract from plan)"
+    }
     def value = settings.spotlightPlanLights
     if (!value || value.trim() == "") {
         return "Not set (will auto-extract from plan)"
