@@ -727,6 +727,13 @@ def scanNextIP() {
                 state.discoverySubnets = null
                 state.discoverySubnetIndex = null
                 state.discoveryCurrentIP = null
+                // Cancel any scheduled scan callbacks since we found the controller
+                try {
+                    unschedule("scanNextIP")
+                    unschedule("scanNextIPTimeout")
+                } catch (Exception e) {
+                    debugLog "Error unscheduling after discovery: ${e.message}"
+                }
                 return
             }
             
