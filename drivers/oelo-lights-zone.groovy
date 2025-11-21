@@ -115,79 +115,11 @@
  */
 
 // Constants
-final String DRIVER_VERSION = "0.8.3"  // Driver version
+final String DRIVER_VERSION = "0.9.0"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
 // Pattern Definitions - Must be defined before metadata block
-// All predefined patterns from Home Assistant integration
-final Map PATTERNS = [
-    "American Liberty: Marching with Red White and Blue": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "American Liberty: Standing with Red White and Blue": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
-    "Birthdays: Birthday Cake": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=14&colors=255,0,0,255,255,255,255,92,0,255,255,255,255,184,0,255,255,255,97,255,0,255,255,255,0,10,255,255,255,255,189,0,255,255,255,255,255,0,199,255,255,255,&direction=R&speed=20&gap=0&other=0&pause=0",
-    "Birthdays: Birthday Confetti": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=14&colors=255,0,0,255,255,255,255,92,0,255,255,255,255,184,0,255,255,255,97,255,0,255,255,255,0,10,255,255,255,255,189,0,255,255,255,255,255,0,199,255,255,255,&direction=R&speed=20&gap=0&other=0&pause=0",
-    "Canadian Strong: O Canada": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=8&colors=237,252,255,237,252,255,237,252,255,255,0,0,255,0,0,255,255,255,255,0,0,255,0,0,&direction=R&speed=20&gap=0&other=0&pause=0",
-    "Christmas: Candy Cane Glimmer": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,255,0,0,255,255,255,255,0,0,&direction=R&speed=20&gap=0&other=0&pause=0",
-    "Christmas: Candy Cane Lane": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,255,0,0,255,0,0,255,0,0,&direction=R&speed=4&gap=0&other=0&pause=0",
-    "Christmas: Christmas Glow": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,255,153,0,255,153,0,255,153,0,&direction=R&speed=2&gap=0&other=0&pause=0",
-    "Christmas: Christmas at Oelo": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=7&colors=26,213,255,26,213,255,26,213,255,26,213,255,26,213,255,255,34,0,255,34,0,&direction=R&speed=2&gap=0&other=0&pause=0",
-    "Christmas: Decorating the Christmas Tree": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=5&colors=0,219,11,0,219,11,0,219,11,255,153,0,255,255,255,&direction=R&speed=2&gap=0&other=0&pause=0",
-    "Christmas: Dreaming of a White Christmas": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=5&colors=238,252,255,237,252,255,237,252,255,0,0,0,0,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
-    "Christmas: Icicle Chase": "setPattern?patternType=chase&num_zones=1&zones={zone}&num_colors=3&colors=255,255,255,0,183,245,0,73,245,&direction=R&speed=5&gap=0&other=0&pause=0",
-    "Christmas: Icicle Shimmer": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,0,204,255,0,70,255,0,70,255,&direction=R&speed=4&gap=0&other=0&pause=0",
-    "Christmas: Icicle Stream": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,0,204,255,0,70,255,0,70,255,&direction=R&speed=4&gap=0&other=0&pause=0",
-    "Christmas: Saturnalia Christmas": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,255,255,255,255,255,255,255,255,0,255,47,0,255,47,0,255,47,255,0,0,255,0,0,255,0,0,&direction=R&speed=2&gap=0&other=0&pause=0",
-    "Christmas: The Grinch Stole Christmas": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=8&colors=15,255,0,15,255,0,15,255,0,15,255,0,255,0,0,255,0,0,255,255,255,255,255,255,&direction=R&speed=2&gap=0&other=0&pause=0",
-    "Cinco De Mayo: Furious Fiesta": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,0,255,0,0,255,0,0,255,0,&direction=R&speed=10&gap=0&other=0&pause=0",
-    "Cinco De Mayo: Mexican Spirit": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,0,255,0,0,255,0,0,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Cinco De Mayo: Salsa Line": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,0,255,0,0,255,0,0,255,0,&direction=R&speed=5&gap=0&other=0&pause=0",
-    "Day of the Dead: Calaveras Dash": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=4&colors=77,248,255,255,77,209,41,144,255,255,246,41,&direction=R&speed=4&gap=0&other=0&pause=0",
-    "Day of the Dead: Calaveras Shimmer": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=4&colors=40,255,200,255,40,200,40,120,255,255,246,40,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Day of the Dead: Marigold Breeze": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,138,0,255,138,0,255,34,0,255,34,0,&direction=R&speed=4&gap=0&other=0&pause=0",
-    "Day of the Dead: Sugar Skull Still": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,255,255,255,255,255,225,0,250,255,255,255,255,255,255,5,180,255,255,255,255,255,255,255,255,142,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Easter: Delicate Dance": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=213,50,255,213,50,255,213,50,255,50,255,184,50,255,184,50,255,184,255,149,50,255,149,50,255,149,50,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Easter: Pastel Unwind": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=144,50,255,144,50,255,144,50,255,213,50,255,213,50,255,213,50,255,80,205,255,80,205,255,80,205,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Election Day: A More Perfect Union": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,4,255,0,39,255,0,39,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Election Day: We The People": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Fathers Day: Fresh Cut Grass": "setPattern?patternType=sprinkle&num_zones=1&zones={zone}&num_colors=1&colors=7,82,0,&direction=R&speed=1&gap=1&other=0&pause=0",
-    "Fathers Day: Grilling Time": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Fourth of July: Fast Fireworks": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,0,0,255,0,0,255,255,255,255,255,0,0,255,0,0,&direction=R&speed=10&gap=0&other=0&pause=0",
-    "Fourth of July: Founders Endurance": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=3&colors=255,0,0,0,39,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Halloween: Candy Corn Glow": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=6&colors=255,215,0,255,155,0,255,64,0,255,54,0,255,74,0,255,255,255,&direction=R&speed=3&gap=0&other=0&pause=0",
-    "Halloween: Goblin Delight": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,53,255,0,53,255,0,53,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Halloween: Goblin Delight Trance": "setPattern?patternType=streak&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,53,255,0,53,255,0,53,255,0,&direction=R&speed=3&gap=0&other=0&pause=0",
-    "Halloween: Halloween Dancing Bash": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=3&colors=255,155,0,240,81,0,255,155,0,&direction=R&speed=3&gap=0&other=0&pause=0",
-    "Halloween: Hocus Pocus": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,255,85,0,255,85,0,255,85,0,&direction=R&speed=3&gap=0&other=0&pause=0",
-    "Halloween: Hocus Pocus Takeover": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=6&colors=176,0,255,176,0,255,176,0,255,255,85,0,255,85,0,255,85,0,&direction=R&speed=3&gap=0&other=0&pause=0",
-    "Halloween: Pumpkin Patch": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=4&colors=255,54,0,255,64,0,0,28,2,0,0,0,&direction=R&speed=3&gap=0&other=0&pause=0",
-    "Hanukkah: Eight Days Of Lights": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,255,255,255,255,255,0,0,255,0,0,255,0,0,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Hanukkah: Hanukkah Glide": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=4&colors=255,255,255,0,0,255,0,0,255,255,255,255,&direction=R&speed=4&gap=0&other=0&pause=0",
-    "Labor Day: Continued Progress": "setPattern?patternType=bolt&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Labor Day: United Strong": "setPattern?patternType=fade&num_zones=1&zones={zone}&num_colors=6&colors=255,0,0,0,0,0,255,255,255,0,0,0,0,0,255,0,0,0,&direction=R&speed=8&gap=0&other=0&pause=0",
-    "Memorial Day: In Honor Of Service": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Memorial Day: Unity Of Service": "setPattern?patternType=takeover&num_zones=1&zones={zone}&num_colors=3&colors=255,0,0,0,0,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Mothers Day: Breakfast In Bed": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=9&colors=100,20,255,100,20,255,100,20,255,230,20,255,230,20,255,230,20,255,20,205,255,20,205,255,20,205,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Mothers Day: Love For A Mother": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=2&colors=180,10,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Mothers Day: Twinkling Memories": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,10,228,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "New Years: Golden Shine": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,255,255,255,161,51,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "New Years: River of Gold": "setPattern?patternType=river&num_zones=1&zones={zone}&num_colors=6&colors=255,255,255,255,145,15,255,255,255,255,145,15,255,255,255,255,145,15,&direction=R&speed=5&gap=0&other=0&pause=0",
-    "New Years: Sliding Into the New Year": "setPattern?patternType=streak&num_zones=1&zones={zone}&num_colors=2&colors=255,255,255,255,145,15,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "New Years: Year of Change": "setPattern?patternType=fade&num_zones=1&zones={zone}&num_colors=3&colors=255,255,255,255,145,15,255,145,15,&direction=R&speed=5&gap=0&other=0&pause=0",
-    "Presidents Day: Flight Of The President": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Presidents Day: The Presidents March": "setPattern?patternType=march&num_zones=1&zones={zone}&num_colors=9&colors=255,0,0,255,0,0,255,0,0,0,0,255,0,0,255,0,0,255,255,255,255,255,255,255,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Pride: Split": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=6&colors=255,0,0,255,50,0,255,240,0,0,255,0,0,0,255,125,0,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Quinceanera: Perfectly Pink": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=6&colors=255,61,183,255,46,228,255,10,164,255,46,149,255,46,228,255,46,129,&direction=R&speed=9&gap=0&other=0&pause=0",
-    "Quinceanera: Twinkle Eyes": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,10,228,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Quinceanera: Vibrant Celebration": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=2&colors=180,10,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "St. Patricks Day: Follow The Rainbow": "setPattern?patternType=split&num_zones=1&zones={zone}&num_colors=6&colors=255,0,5,255,50,0,255,230,0,63,255,0,0,136,255,100,0,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "St. Patricks Day: Sprinkle Of Dust": "setPattern?patternType=sprinkle&num_zones=1&zones={zone}&num_colors=2&colors=97,255,0,173,255,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Thanksgiving: Thanksgiving Apple Pie": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=6&colors=255,31,0,255,31,0,255,31,0,255,94,0,255,94,0,255,94,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Thanksgiving: Thanksgiving Turkey": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=1&colors=255,94,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Valentines: Adorations Smile": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=3&colors=255,10,228,255,0,76,255,143,238,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Valentines: Cupids Twinkle": "setPattern?patternType=twinkle&num_zones=1&zones={zone}&num_colors=2&colors=255,10,228,255,255,255,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Valentines: My Heart Is Yours": "setPattern?patternType=fade&num_zones=1&zones={zone}&num_colors=3&colors=255,10,228,255,255,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0",
-    "Valentines: Powerful Love": "setPattern?patternType=stationary&num_zones=1&zones={zone}&num_colors=2&colors=180,10,255,255,0,0,&direction=R&speed=1&gap=0&other=0&pause=0"
-]
 
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
@@ -204,18 +136,21 @@ metadata {
         attribute "driverVersion", "string"
         attribute "switch", "string"
         attribute "availablePatterns", "string"
+        attribute "discoveredControllerIP", "string"
         
         // Custom commands
         command "setPattern"
         command "getPattern"
-        command "loadPredefinedPatterns"
+        command "discoverController"
+        command "stopDiscovery"
         command "on"
         command "off"
     }
     
     preferences {
         section("Controller Settings") {
-            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, description: "IP address of Oelo controller"
+            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, description: "IP address of Oelo controller${state.discoveredControllerIP ? " (Discovered: ${state.discoveredControllerIP})" : ""}"
+            input name: "scanSubnet", type: "text", title: "Subnet to Scan (for discovery)", required: false, description: "Subnet prefix to scan (e.g., '192.168.1' or '10.16.1'). Leave empty to try common subnets."
             input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
         }
         
@@ -456,8 +391,6 @@ def initialize() {
     // Migrate old settings-based patterns to state (one-time migration)
     migrateOldPatterns()
     
-    // Load predefined patterns from PATTERNS map (one-time)
-    doLoadPredefinedPatterns()
     
     // Update available patterns attribute
     updateAvailablePatternsAttribute()
@@ -650,13 +583,343 @@ def setPattern(String patternName = null) {
     setEffect(selectedPattern)
 }
 
-// Custom command: Load predefined patterns from PATTERNS map
-def loadPredefinedPatterns() {
-    log.info "loadPredefinedPatterns() command called"
-    // Reset the marker to allow reloading
-    state.predefinedPatternsLoaded = false
-    doLoadPredefinedPatterns()
-    log.info "Predefined patterns loading completed"
+// Custom command: Discover Oelo controller on network
+def discoverController() {
+    log.warn "discoverController() command called"
+    log.info "=== CONTROLLER DISCOVERY STARTED ==="
+    
+    // Clear previous discovery result and reset stop flag
+    state.discoveredControllerIP = null
+    state.discoveryStopped = false
+    sendEvent(name: "discoveredControllerIP", value: "")
+    
+    def subnetsToScan = []
+    
+    // Try to detect Hubitat hub's subnet first
+    def hubSubnet = getHubSubnet()
+    if (hubSubnet) {
+        subnetsToScan.add(hubSubnet)
+        log.info "Detected Hubitat hub subnet: ${hubSubnet}.0/24 (will scan first)"
+    }
+    
+    // If subnet preference is set, add it (but hub subnet takes priority)
+    if (settings.scanSubnet && settings.scanSubnet.trim() != "") {
+        def subnet = settings.scanSubnet.trim()
+        // Validate subnet format (should be like "192.168.1" or "10.16.1")
+        if (subnet.matches(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+            // Only add if not already in list (avoid duplicates)
+            if (!subnetsToScan.contains(subnet)) {
+                subnetsToScan.add(subnet)
+                log.info "Added specified subnet: ${subnet}.0/24"
+            }
+        } else {
+            log.warn "Invalid subnet format: ${subnet}. Expected format: '192.168.1' or '10.16.1'"
+        }
+    }
+    
+    // If no subnets yet, try common subnets
+    if (subnetsToScan.isEmpty()) {
+        subnetsToScan = ["192.168.1", "192.168.0", "10.0.0", "172.16.0", "10.16.1"]
+        log.info "No subnet detected or specified, scanning common subnets: ${subnetsToScan.join(', ')}"
+    } else {
+        // Add common subnets as fallback (but hub subnet is scanned first)
+        def commonSubnets = ["192.168.1", "192.168.0", "10.0.0", "172.16.0", "10.16.1"]
+        commonSubnets.each { subnet ->
+            if (!subnetsToScan.contains(subnet)) {
+                subnetsToScan.add(subnet)
+            }
+        }
+        log.info "Will scan ${subnetsToScan.size()} subnet(s): ${subnetsToScan.join(', ')}"
+    }
+    
+    // Start scanning first subnet
+    state.discoverySubnets = subnetsToScan
+    state.discoverySubnetIndex = 0
+    state.discoveryCurrentIP = 1
+    state.discoveryFound = false
+    state.discoveryStopped = false  // Reset stop flag
+    
+    scanNextIP()
+}
+
+// Scan next IP in current subnet (called recursively via runIn)
+def scanNextIP() {
+    // Check stop flag FIRST - before doing anything else
+    if (state.discoveryStopped) {
+        debugLog "Discovery stopped, scanNextIP() exiting early"
+        return
+    }
+    
+    if (state.discoveryFound) {
+        return  // Already found, stop scanning
+    }
+    
+    def subnets = state.discoverySubnets ?: []
+    // If subnets list is empty/null, discovery was stopped
+    if (subnets.isEmpty()) {
+        debugLog "Discovery stopped (subnets cleared), scanNextIP() exiting"
+        return
+    }
+    if (state.discoverySubnetIndex >= subnets.size()) {
+        log.warn "=== CONTROLLER NOT FOUND ==="
+        log.warn "No Oelo controller found on scanned subnets."
+        log.warn "Troubleshooting:"
+        log.warn "1. Make sure controller is powered on"
+        log.warn "2. Verify controller is on the same network"
+        log.warn "3. Try specifying the subnet manually in preferences (e.g., '192.168.1')"
+        log.warn "4. Check router admin interface for connected devices"
+        state.discoverySubnets = null
+        state.discoverySubnetIndex = null
+        state.discoveryCurrentIP = null
+        return
+    }
+    
+    def subnet = subnets[state.discoverySubnetIndex]
+    def currentIP = state.discoveryCurrentIP ?: 1
+    
+    // Progress logging
+    if (currentIP == 1) {
+        log.info "Starting scan of subnet ${subnet}.0/24 (IPs 1-254)..."
+    }
+    
+    // Log every 20th IP (including the last in each block: 20, 40, 60, etc.)
+    if (currentIP % 20 == 0 || currentIP == 1) {
+        def ip = "${subnet}.${currentIP}"
+        log.info "Scanning IP ${currentIP}/254: ${ip}"
+    }
+    
+    def ip = "${subnet}.${currentIP}"
+    
+    // Store current state for timeout safety net
+    state.discoveryLastIP = ip
+    state.discoveryLastIPTime = now()
+    state.discoveryLastIPNum = currentIP
+    
+    // Safety timeout: if callback doesn't fire within 1 second, continue anyway
+    // Use shorter timeout since HTTP timeout is 500ms
+    runIn(1, "scanNextIPTimeout")
+    
+    debugLog "Testing IP ${currentIP}/254: ${ip}"
+    
+    // Test this IP
+    testOeloController(ip) { found ->
+        // Check if discovery was stopped
+        if (state.discoveryStopped) {
+            debugLog "Discovery stopped, ignoring callback for ${ip}"
+            return
+        }
+        
+        // Cancel timeout since callback fired
+        if (state.discoveryLastIP == ip) {
+            state.discoveryLastIP = null
+            state.discoveryLastIPTime = null
+            state.discoveryLastIPNum = null
+        }
+        
+        try {
+            if (found) {
+                state.discoveredControllerIP = ip
+                sendEvent(name: "discoveredControllerIP", value: ip)
+                log.info "=== CONTROLLER DISCOVERED ==="
+                log.info "IP Address: ${ip}"
+                log.info "Please copy this IP address and paste it into the 'Controller IP Address' preference field, then save."
+                state.discoveryFound = true
+                state.discoverySubnets = null
+                state.discoverySubnetIndex = null
+                state.discoveryCurrentIP = null
+                return
+            }
+            
+            // Move to next IP
+            def nextIP = currentIP + 1
+            if (nextIP > 254) {
+                // Move to next subnet
+                log.info "Completed scan of subnet ${subnet}.0/24 (no controller found)"
+                def nextSubnetIndex = state.discoverySubnetIndex + 1
+                state.discoverySubnetIndex = nextSubnetIndex
+                state.discoveryCurrentIP = 1
+                if (nextSubnetIndex < subnets.size()) {
+                    def nextSubnet = subnets[nextSubnetIndex]
+                    log.info "Moving to next subnet: ${nextSubnet}.0/24"
+                }
+            } else {
+                state.discoveryCurrentIP = nextIP
+            }
+            
+            // Schedule next scan (small delay to avoid overwhelming network)
+            // Only if discovery hasn't been stopped
+            if (!state.discoveryStopped) {
+                runIn(1, "scanNextIP")
+            }
+        } catch (Exception e) {
+            log.error "Error in scanNextIP callback: ${e.message}"
+            // Try to continue scanning anyway, but only if not stopped
+            if (!state.discoveryStopped) {
+                runIn(1, "scanNextIP")
+            }
+        }
+    }
+}
+
+// Stop discovery scan
+def stopDiscovery() {
+    log.info "=== STOPPING CONTROLLER DISCOVERY ==="
+    state.discoveryStopped = true
+    state.discoverySubnets = null
+    state.discoverySubnetIndex = null
+    state.discoveryCurrentIP = null
+    state.discoveryLastIP = null
+    state.discoveryLastIPTime = null
+    state.discoveryLastIPNum = null
+    // Cancel any scheduled scan callbacks
+    try {
+        unschedule("scanNextIP")
+        unschedule("scanNextIPTimeout")
+    } catch (Exception e) {
+        debugLog "Error unscheduling: ${e.message}"
+    }
+    // Also try to cancel all scheduled functions (nuclear option)
+    try {
+        unschedule()
+    } catch (Exception e) {
+        debugLog "Error unscheduling all: ${e.message}"
+    }
+    log.info "Discovery scan stopped"
+}
+
+// Timeout safety net: if HTTP callback doesn't fire, continue scanning anyway
+def scanNextIPTimeout() {
+    // Check if discovery was stopped
+    if (state.discoveryStopped) {
+        debugLog "Discovery stopped, timeout cancelled"
+        return
+    }
+    
+    // Check if we're still waiting on an IP (callback didn't fire)
+    if (state.discoveryLastIP && state.discoveryLastIPTime) {
+        def elapsed = now() - state.discoveryLastIPTime
+        def ipNum = state.discoveryLastIPNum ?: "?"
+        log.warn "Timeout safety net triggered: HTTP callback didn't fire for IP ${state.discoveryLastIP} (#${ipNum}) after ${elapsed}ms, continuing scan..."
+        // Clear the timeout markers
+        state.discoveryLastIP = null
+        state.discoveryLastIPTime = null
+        state.discoveryLastIPNum = null
+        // Continue scanning
+        scanNextIP()
+    } else {
+        // Callback already fired, timeout was cancelled - this is normal
+        debugLog "Timeout safety net: callback already fired, no action needed"
+    }
+}
+
+// Get Hubitat hub's subnet by detecting local IP
+def getHubSubnet() {
+    try {
+        // Try to get hub's local IP from location (may not be available in all contexts)
+        if (location && location.hubs && location.hubs.size() > 0) {
+            def hub = location.hubs[0]
+            def localIP = hub.getDataValue("localIP")
+            if (localIP && isValidIP(localIP)) {
+                // Extract subnet (first 3 octets)
+                def parts = localIP.split("\\.")
+                if (parts.size() >= 3) {
+                    def subnet = "${parts[0]}.${parts[1]}.${parts[2]}"
+                    debugLog "Detected hub subnet from localIP: ${subnet}"
+                    return subnet
+                }
+            }
+        }
+    } catch (Exception e) {
+        debugLog "Could not detect hub subnet from location: ${e.message}"
+    }
+    
+    // Fallback: Try to infer subnet from controller IP if already configured
+    if (controllerIP && isValidIP(controllerIP)) {
+        def parts = controllerIP.split("\\.")
+        if (parts.size() >= 3) {
+            def subnet = "${parts[0]}.${parts[1]}.${parts[2]}"
+            debugLog "Inferred subnet from configured controller IP: ${subnet}"
+            return subnet
+        }
+    }
+    
+    return null
+}
+
+// Test if an IP address is an Oelo controller (async)
+// Uses the same response parsing logic as fetchZoneData
+def testOeloController(String ip, Closure callback) {
+    try {
+        def url = "http://${ip}/getController"
+        httpGet([
+            uri: url,
+            timeout: 500,  // 500ms timeout for discovery (faster scanning, most failures are quick)
+            requestContentType: "application/json"
+        ]) { response ->
+            try {
+                if (response && response.status == 200) {
+                    def zones = response.data
+                    def parsedZones = null
+                    
+                    // Use same parsing logic as fetchZoneData
+                    // If zones is already a List, use it directly
+                    if (zones instanceof List) {
+                        parsedZones = zones
+                    }
+                    // If it's a String, parse it as JSON
+                    else if (zones instanceof String) {
+                        try {
+                            parsedZones = new groovy.json.JsonSlurper().parseText(zones)
+                        } catch (Exception e) {
+                            // Not valid JSON
+                        }
+                    }
+                    // If it's an InputStream, read it as text and parse
+                    else {
+                        try {
+                            def zonesText = zones?.text
+                            if (zonesText) {
+                                parsedZones = new groovy.json.JsonSlurper().parseText(zonesText)
+                            }
+                        } catch (Exception e) {
+                            // Not an InputStream or parsing failed
+                        }
+                    }
+                    
+                    // Check if parsed result is a List with Oelo controller zone structure
+                    if (parsedZones instanceof List && parsedZones.size() > 0) {
+                        def firstZone = parsedZones[0]
+                        if (firstZone instanceof Map) {
+                            // Oelo controller zones have "num" and "pattern"/"enabled" fields
+                            if (firstZone.containsKey("num") && (firstZone.containsKey("pattern") || firstZone.containsKey("enabled"))) {
+                                log.info "Found Oelo controller at ${ip}"
+                                debugLog "Found Oelo controller at ${ip}"
+                                if (callback) callback(true)
+                                return
+                            }
+                        }
+                    }
+                    
+                    debugLog "IP ${ip} returned HTTP 200 but doesn't match Oelo controller structure"
+                }
+                if (callback) callback(false)
+            } catch (Exception e) {
+                debugLog "Error processing response from ${ip}: ${e.message}"
+                if (callback) callback(false)
+            }
+        }
+    } catch (Exception e) {
+        // Timeout or connection error - not an Oelo controller
+        // Ensure callback is always called even on exception
+        debugLog "HTTP request exception for ${ip}: ${e.message}"
+        if (callback) {
+            try {
+                callback(false)
+            } catch (Exception callbackError) {
+                debugLog "Error in callback for ${ip}: ${callbackError.message}"
+            }
+        }
+    }
 }
 
 // Custom command: Get current pattern from controller and store it
@@ -1451,79 +1714,6 @@ def migrateOldPatterns() {
     }
 }
 
-// Load predefined patterns from PATTERNS map into state.patterns
-def doLoadPredefinedPatterns() {
-    // Check if already loaded (check for a marker in state)
-    if (state.predefinedPatternsLoaded) {
-        debugLog "Predefined patterns already loaded, skipping"
-        return
-    }
-    
-    def patterns = state.patterns ?: []
-    def loadedCount = 0
-    
-    PATTERNS.each { patternName, patternUrl ->
-        // Check if pattern already exists (by name)
-        def existingPattern = patterns.find { it && it.name == patternName }
-        if (existingPattern) {
-            debugLog "Pattern '${patternName}' already exists, skipping"
-            return
-        }
-        
-        // Parse pattern URL string to extract parameters
-        // Format: "setPattern?patternType=march&zones={zone}&num_zones=1&num_colors=6&colors=...&direction=R&speed=1&gap=0&other=0&pause=0"
-        def urlParams = parseUrlParams(patternUrl.replace("{zone}", zoneNumber.toString()))
-        
-        if (!urlParams || urlParams.isEmpty()) {
-            log.warn "Could not parse pattern URL for '${patternName}', skipping"
-            return
-        }
-        
-        // Determine plan type
-        def patternType = urlParams.patternType ?: "unknown"
-        def planType = identifyPlanType(patternType)
-        
-        // Generate stable pattern ID
-        def patternId = generatePatternId(patternName, urlParams)
-        
-        // Find next empty slot
-        def nextSlot = findNextEmptyPatternSlot(patterns)
-        if (nextSlot < 0) {
-            log.warn "No empty slots available for predefined pattern '${patternName}' (max 200 patterns)"
-            return
-        }
-        
-        // Extend patterns list if needed
-        if (patterns.size() < nextSlot) {
-            while (patterns.size() < nextSlot) {
-                patterns.add(null)
-            }
-        }
-        
-        // Create pattern object
-        def patternObj = [
-            id: patternId,
-            name: patternName,
-            urlParams: urlParams,
-            planType: planType
-        ]
-        
-        // Store pattern
-        patterns[nextSlot - 1] = patternObj
-        loadedCount++
-        debugLog "Loaded predefined pattern '${patternName}' (ID: ${patternId}, planType: ${planType})"
-    }
-    
-    if (loadedCount > 0) {
-        state.patterns = patterns
-        state.predefinedPatternsLoaded = true
-        updateAvailablePatternsAttribute()
-        log.info "Loaded ${loadedCount} predefined patterns from PATTERNS map"
-    } else {
-        state.predefinedPatternsLoaded = true  // Mark as loaded even if none were added
-        debugLog "No new predefined patterns to load (all already exist or no slots available)"
-    }
-}
 
 // Generate stable pattern ID from pattern name and URL parameters
 def generatePatternId(String patternName, Map urlParams) {

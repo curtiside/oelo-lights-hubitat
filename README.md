@@ -272,15 +272,14 @@ For issues, questions, or contributions:
 
 ## Version History
 
-### Version 0.8.3 (Current)
-- Increased pattern capacity from 20 to 200 patterns
-- Added support for spotlight plans and non-spotlight plans with automatic type detection
-- Added Spotlight Plan Lights setting to customize which LEDs are active in spotlight patterns
-- Added pattern validation (colors string and complete URL validation)
-- Added no-op detection for non-spotlight plans
-- Pattern type displayed in pattern lists and dropdowns
-- Improved pattern management with lazy plan type evaluation for backward compatibility
-- Full validation error logging for debugging
+### Version 0.9.0 (Current)
+- Pattern capture and management: Capture up to 200 patterns from the Oelo controller
+- Pattern types: Automatic detection of spotlight vs non-spotlight plans
+- Pattern management: Rename and delete patterns via device preferences
+- Pattern validation: Full validation ensures captured patterns are valid before saving
+- Spotlight plan support: Customize which LEDs are active in spotlight patterns to deal with 40 light getController issue
+- Auto-polling: Configurable automatic status polling
+- Command verification: Optional feature (disabled by default) that polls the controller after sending commands to verify they were applied successfully
 
 ### Previous Versions
 See [packageManifest.json](./packageManifest.json) for complete version history and release notes.
