@@ -20,7 +20,8 @@
  * **Optional Settings:**
  * - Poll Interval: How often to poll controller status (default: 30 seconds)
  * - Auto Polling: Automatically poll controller status (default: enabled)
- * - Patterns: Up to 20 user-defined patterns with custom names
+ * - Patterns: Up to 200 user-defined patterns with custom names
+ * - Spotlight Plan Lights: Comma-delimited list of LED indices for spotlight plans
  * - Debug Logging: Enable detailed logging for troubleshooting
  * - Command Timeout: HTTP request timeout (default: 10 seconds)
  * 
@@ -56,17 +57,19 @@
  * - `getPattern()` - Capture current pattern from controller and save it
  * 
  * **Pattern Selection:**
- * - Patterns: Configured in device preferences (up to 20 patterns)
+ * - Patterns: Configured in device preferences (up to 200 patterns)
  * - Patterns are selected via dropdown menu in device preferences
  * - Commands use the selected pattern from the dropdown
  * 
  * ## Pattern Support
  * 
  * **Patterns:**
- * - Up to 20 patterns can be configured per device
- * - Patterns use pattern name as patternType (controller has settings stored)
+ * - Up to 200 patterns can be configured per device
+ * - Patterns support two types: spotlight plans and non-spotlight plans
+ * - Spotlight plans: Specific LEDs on, all others off (uses spotlightPlanLights setting)
+ * - Non-spotlight plans: Standard pattern types (march, stationary, river, etc.)
  * - Pattern names are user-defined
- * - Patterns appear in Pattern Selection dropdown
+ * - Patterns appear in Pattern Selection dropdown with plan type indicator
  * 
  * ## Attributes
  * 
@@ -109,7 +112,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.7.6
+ * @version 0.8.0
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -221,7 +224,7 @@ metadata {
         section("Pattern Management") {
             input name: "renamePattern", type: "enum", title: "Select Pattern to Rename", 
                 options: getPatternOptions(), 
-                required: false, description: "Select a pattern to rename"
+                required: false, description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
             input name: "newPatternName", type: "text", title: "New Pattern Name", 
                 required: false, description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
             input name: "deletePattern", type: "enum", title: "Delete Pattern", 
@@ -229,6 +232,11 @@ metadata {
                 required: false, description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
             input name: "savePatternString", type: "text", title: "Save Pattern String", 
                 required: false, description: "Paste the complete pattern URL string here. If it's longer than ~166 chars, paste it in chunks - the driver will automatically combine them."
+        }
+        
+        section("Spotlight Plan Settings") {
+            input name: "spotlightPlanLights", type: "text", title: "Spotlight Plan Lights", 
+                required: false, description: "Comma-delimited list of LED indices to turn on for spotlight plans (e.g., '1,3,5,7,9'). Current value: ${getSpotlightPlanLightsDisplay()}"
         }
         
         section("Polling") {
@@ -279,6 +287,23 @@ def updated() {
     
     // Set driver version immediately
     setDriverVersion()
+    
+    // Pre-select most recently captured pattern in renamePattern if not set
+    if ((!settings.renamePattern || settings.renamePattern == "") && state.lastCapturedPatternName) {
+        def lastCaptured = state.lastCapturedPatternName
+        def patterns = state.patterns ?: []
+        def patternExists = patterns.find { it && it.name == lastCaptured }
+        if (patternExists) {
+            // Try to set renamePattern to last captured pattern
+            // Note: app.updateSetting() may not work in drivers, but we'll try
+            try {
+                app.updateSetting("renamePattern", lastCaptured)
+                debugLog "Pre-selected most recently captured pattern '${lastCaptured}' in renamePattern"
+            } catch (Exception e) {
+                debugLog "Could not pre-select renamePattern (may not be supported in drivers): ${e.message}"
+            }
+        }
+    }
     
     // Handle pattern renaming if renamePattern and newPatternName preferences were set
     if (settings.renamePattern && settings.renamePattern != "" && settings.newPatternName && settings.newPatternName.trim() != "") {
@@ -345,6 +370,71 @@ def updated() {
             // User will need to save preferences again to clear the selection
         } else {
             log.warn "Pattern '${patternName}' not found for deletion"
+        }
+    }
+    
+    // Handle spotlightPlanLights setting changes
+    def currentSpotlightLights = settings.spotlightPlanLights ?: ""
+    def previousSpotlightLights = state.previousSpotlightPlanLights ?: ""
+    
+    if (currentSpotlightLights != previousSpotlightLights) {
+        log.info "spotlightPlanLights setting changed, re-modifying all saved spotlight plans..."
+        debugLog "Previous value: '${previousSpotlightLights}'"
+        debugLog "New value: '${currentSpotlightLights}'"
+        
+        // Normalize new value
+        def normalized = currentSpotlightLights.trim()
+        if (normalized) {
+            // Get numColors from first spotlight plan (or use default)
+            def patterns = state.patterns ?: []
+            def spotlightPlan = patterns.find { it && it.planType == "spotlight" }
+            def numColors = spotlightPlan?.urlParams?.num_colors ? spotlightPlan.urlParams.num_colors.toInteger() : 156
+            normalized = normalizeLedIndices(normalized, numColors)
+            
+            // Save normalized value back to preference if it changed
+            if (normalized != currentSpotlightLights) {
+                app.updateSetting("spotlightPlanLights", normalized)
+                currentSpotlightLights = normalized
+            }
+        }
+        
+        // Re-modify all saved spotlight plans
+        def patterns = state.patterns ?: []
+        def modifiedCount = 0
+        patterns.eachWithIndex { pattern, index ->
+            if (pattern && pattern.planType == "spotlight") {
+                def urlParams = pattern.urlParams
+                def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
+                // Use original colors if available, otherwise use current colors
+                def colors = pattern.originalColors ?: urlParams.colors ?: ""
+                
+                if (normalized && normalized.trim() != "") {
+                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors)
+                    urlParams.colors = modifiedColors
+                    patterns[index] = pattern
+                    modifiedCount++
+                    debugLog "Re-modified spotlight plan '${pattern.name}' with new LED indices: ${normalized}"
+                }
+            }
+        }
+        
+        if (modifiedCount > 0) {
+            state.patterns = patterns
+            updateAvailablePatternsAttribute()
+            log.info "Re-modified ${modifiedCount} spotlight plan(s) with new spotlightPlanLights setting"
+        }
+        
+        // Store current value for next comparison
+        state.previousSpotlightPlanLights = currentSpotlightLights
+    } else if (currentSpotlightLights && currentSpotlightLights.trim() != "") {
+        // Normalize even if value didn't change (in case user entered invalid format)
+        def patterns = state.patterns ?: []
+        def spotlightPlan = patterns.find { it && it.planType == "spotlight" }
+        def numColors = spotlightPlan?.urlParams?.num_colors ? spotlightPlan.urlParams.num_colors.toInteger() : 156
+        def normalized = normalizeLedIndices(currentSpotlightLights, numColors)
+        if (normalized != currentSpotlightLights) {
+            app.updateSetting("spotlightPlanLights", normalized)
+            state.previousSpotlightPlanLights = normalized
         }
     }
     
@@ -448,7 +538,7 @@ def updated() {
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.7.6"
+    def driverVersion = "0.8.0"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -693,6 +783,49 @@ def getPattern() {
         debugLog "[SUCCESS] Step 5: URL parameters built"
         debugLog "URL parameters: ${urlParams}"
         
+        // Detect plan type
+        def planType = identifyPlanType(urlParams.patternType ?: pattern)
+        debugLog "[Step 5a] Plan type detected: '${planType}'"
+        
+        // Store original colors for spotlight plans BEFORE modification
+        def originalColors = null
+        if (planType == "spotlight" && urlParams.colors) {
+            originalColors = urlParams.colors
+        }
+        
+        // Handle spotlight plan modification
+        if (planType == "spotlight") {
+            debugLog "[Step 5b] Processing spotlight plan modification..."
+            def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
+            def colors = urlParams.colors ?: ""
+            
+            // Check if spotlightPlanLights is null/empty - extract from plan
+            def spotlightLights = settings.spotlightPlanLights
+            if (!spotlightLights || spotlightLights.trim() == "") {
+                debugLog "spotlightPlanLights is empty, extracting from received plan..."
+                spotlightLights = extractOnLedsFromPlan(colors, numColors)
+                if (spotlightLights) {
+                    // Save extracted list (normalized)
+                    app.updateSetting("spotlightPlanLights", spotlightLights)
+                    log.info "Auto-extracted spotlight plan lights: ${spotlightLights}"
+                }
+            } else {
+                // Normalize existing setting
+                spotlightLights = normalizeLedIndices(spotlightLights, numColors)
+                // Save normalized value if it changed
+                if (spotlightLights != settings.spotlightPlanLights) {
+                    app.updateSetting("spotlightPlanLights", spotlightLights)
+                }
+            }
+            
+            // Modify colors array based on spotlightPlanLights
+            if (spotlightLights && spotlightLights.trim() != "") {
+                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors)
+                urlParams.colors = modifiedColors
+                debugLog "Modified spotlight plan colors using LED indices: ${spotlightLights}"
+            }
+        }
+        
         debugLog "[Step 6] Generating stable pattern ID from fields..."
         // Generate stable pattern ID from pattern type and key parameters
         // Available fields: pattern, name (zone name), num, numberOfColors, direction, speed, gap, rgbOrder
@@ -727,6 +860,10 @@ def getPattern() {
         debugLog "Generated stable pattern ID: '${patternId}'"
         debugLog "[SUCCESS] Step 6: Stable pattern ID determined: '${patternId}'"
         
+        // Check full length warning (after patternId is defined)
+        def patternString = buildCommandUrl(urlParams)
+        checkPlanStringLength(patternString, patternId)
+        
         debugLog "[Step 7] Retrieving patterns list from state..."
         // Get patterns list
         def patterns = state.patterns ?: []
@@ -750,9 +887,18 @@ def getPattern() {
             // Pattern with same ID exists - update urlParams but keep existing name (user may have renamed it)
             def existingName = patterns[existingIndex].name
             patterns[existingIndex].urlParams = urlParams
+            patterns[existingIndex].planType = planType
+            // Store original colors for spotlight plans
+            if (planType == "spotlight" && urlParams.colors) {
+                patterns[existingIndex].originalColors = urlParams.colors
+            }
             state.patterns = patterns
             updateAvailablePatternsAttribute()
-            log.info "[SUCCESS] Step 9: Updated existing pattern '${existingName}' (ID: ${patternId}) with new parameters"
+            
+            // Track most recently captured pattern for rename pre-selection
+            state.lastCapturedPatternName = existingName
+            
+            log.info "[SUCCESS] Step 9: Updated existing pattern '${existingName}' (ID: ${patternId}) with new parameters (planType: ${planType})"
             debugLog "Updated pattern: ${patterns[existingIndex]}"
             debugLog "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         } else {
@@ -762,7 +908,7 @@ def getPattern() {
             debugLog "Next empty slot: ${nextSlot >= 0 ? nextSlot : 'none found'}"
             
             if (nextSlot == -1) {
-                log.error "[FAILED] Step 9: No empty slots available (maximum 20 patterns)"
+                log.error "[FAILED] Step 9: No empty slots available (maximum 200 patterns)"
                 debugLog "Current patterns count: ${patterns.size()}"
                 debugLog "=== GET PATTERN COMMAND FAILED ==="
         return
@@ -781,15 +927,21 @@ def getPattern() {
             patterns[nextSlot - 1] = [
                 id: patternId,
                 name: patternName,
-                urlParams: urlParams
+                urlParams: urlParams,
+                planType: planType,
+                originalColors: originalColors  // Store original for spotlight plans (set earlier)
             ]
-            debugLog "Pattern stored at index ${nextSlot - 1}: id='${patternId}', name='${patternName}'"
+            debugLog "Pattern stored at index ${nextSlot - 1}: id='${patternId}', name='${patternName}', planType='${planType}'"
             
             state.patterns = patterns
             debugLog "State updated. New patterns count: ${state.patterns.size()}"
             
             log.info "[SUCCESS] Step 10: Stored new pattern '${patternName}' (ID: ${patternId}) in slot ${nextSlot}"
             debugLog "Final patterns list: ${state.patterns}"
+            
+            // Track most recently captured pattern for rename pre-selection
+            state.lastCapturedPatternName = patternName
+            
             debugLog "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         }
     }
@@ -905,6 +1057,52 @@ def processPatternString(String patternString) {
             return
         }
         
+        // Detect plan type
+        def planType = identifyPlanType(patternType)
+        debugLog "Plan type detected: '${planType}'"
+        
+        // Store original colors for spotlight plans BEFORE modification
+        def originalColors = null
+        if (planType == "spotlight" && urlParams.colors) {
+            originalColors = urlParams.colors
+        }
+        
+        // Handle spotlight plan modification
+        if (planType == "spotlight") {
+            debugLog "Processing spotlight plan modification..."
+            def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
+            def colors = urlParams.colors ?: ""
+            
+            // Check if spotlightPlanLights is null/empty - extract from plan
+            def spotlightLights = settings.spotlightPlanLights
+            if (!spotlightLights || spotlightLights.trim() == "") {
+                debugLog "spotlightPlanLights is empty, extracting from received plan..."
+                spotlightLights = extractOnLedsFromPlan(colors, numColors)
+                if (spotlightLights) {
+                    // Save extracted list (normalized)
+                    app.updateSetting("spotlightPlanLights", spotlightLights)
+                    log.info "Auto-extracted spotlight plan lights: ${spotlightLights}"
+                }
+            } else {
+                // Normalize existing setting
+                spotlightLights = normalizeLedIndices(spotlightLights, numColors)
+                // Save normalized value if it changed
+                if (spotlightLights != settings.spotlightPlanLights) {
+                    app.updateSetting("spotlightPlanLights", spotlightLights)
+                }
+            }
+            
+            // Modify colors array based on spotlightPlanLights
+            if (spotlightLights && spotlightLights.trim() != "") {
+                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors)
+                urlParams.colors = modifiedColors
+                debugLog "Modified spotlight plan colors using LED indices: ${spotlightLights}"
+            }
+        }
+        
+        // Check full length warning
+        checkPlanStringLength(patternString, patternType)
+        
         // Generate stable pattern ID from parameters
         def patternId = patternType.toString()
         def suffixParts = []
@@ -932,18 +1130,29 @@ def processPatternString(String patternString) {
         
         if (existingIndex >= 0) {
             def existingName = patterns[existingIndex].name ?: patternId
+            // Store original colors for spotlight plans
+            def originalColors = null
+            if (planType == "spotlight" && urlParams.colors) {
+                originalColors = urlParams.colors
+            }
             patterns[existingIndex] = [
                 id: patternId,
                 name: existingName,
-                urlParams: urlParams
+                urlParams: urlParams,
+                planType: planType,
+                originalColors: originalColors
             ]
             state.patterns = patterns
             updateAvailablePatternsAttribute()
-            log.info "Updated existing pattern '${existingName}' (ID: ${patternId}) from string"
+            
+            // Track most recently captured pattern for rename pre-selection
+            state.lastCapturedPatternName = existingName
+            
+            log.info "Updated existing pattern '${existingName}' (ID: ${patternId}) from string (planType: ${planType})"
         } else {
             def nextSlot = findNextEmptyPatternSlot(patterns)
             if (nextSlot == -1) {
-                log.error "Cannot save pattern: No empty slots available (maximum 20 patterns)"
+                log.error "Cannot save pattern: No empty slots available (maximum 200 patterns)"
                 return
             }
             
@@ -955,11 +1164,17 @@ def processPatternString(String patternString) {
             patterns[nextSlot - 1] = [
                 id: patternId,
                 name: patternName,
-                urlParams: urlParams
+                urlParams: urlParams,
+                planType: planType,
+                originalColors: originalColors  // Store original for spotlight plans (set earlier)
             ]
             state.patterns = patterns
             updateAvailablePatternsAttribute()
-            log.info "Saved new pattern '${patternName}' (ID: ${patternId}) from string in slot ${nextSlot}"
+            
+            // Track most recently captured pattern for rename pre-selection
+            state.lastCapturedPatternName = patternName
+            
+            log.info "Saved new pattern '${patternName}' (ID: ${patternId}) from string in slot ${nextSlot} (planType: ${planType})"
         }
         
         log.info "=== SAVE PATTERN STRING COMMAND COMPLETED SUCCESSFULLY ==="
@@ -1065,9 +1280,218 @@ def parseColorStr(String colorStr) {
     return result
 }
 
-// Find next empty slot in custom patterns list
+// Plan Type Detection Functions
+
+// Identify plan type from patternType string
+def identifyPlanType(String patternType) {
+    if (!patternType) return "non-spotlight"
+    return (patternType == "spotlight") ? "spotlight" : "non-spotlight"
+}
+
+// Ensure planType exists in pattern (lazy evaluation for backward compatibility)
+def ensurePlanType(Map pattern) {
+    // If planType already exists, return pattern as-is
+    if (pattern.planType) {
+        return pattern
+    }
+    
+    // Lazy evaluation: determine planType from urlParams
+    try {
+        def patternType = pattern.urlParams?.patternType ?: "unknown"
+        def planType = identifyPlanType(patternType.toString())
+        
+        // Update pattern object with planType
+        pattern.planType = planType
+        
+        // Save updated pattern back to state
+        def patterns = state.patterns ?: []
+        def index = patterns.findIndexOf { it && it.id == pattern.id }
+        if (index >= 0) {
+            patterns[index] = pattern
+            state.patterns = patterns
+            debugLog "Lazy evaluation: Populated planType='${planType}' for pattern '${pattern.name}'"
+        }
+    } catch (Exception e) {
+        // Never fail - default to non-spotlight
+        log.warn "Could not evaluate planType for pattern '${pattern.name}', defaulting to 'non-spotlight': ${e.message}"
+        pattern.planType = "non-spotlight"
+    }
+    
+    return pattern
+}
+
+// Check plan string length and log warning if at full length
+def checkPlanStringLength(String patternString, String patternName) {
+    if (!patternString || !patternName) return
+    
+    def length = patternString.length()
+    def stateThreshold = 62000  // 95% of 65536
+    def preferenceThreshold = 157  // 95% of 166
+    
+    if (length >= stateThreshold) {
+        log.warn "WARNING: Plan '${patternName}' received at full length (${length} chars). This may indicate truncation or maximum capacity reached (state limit: ~64KB)."
+    } else if (length >= preferenceThreshold) {
+        log.warn "WARNING: Plan '${patternName}' received at full length (${length} chars). This may indicate truncation (preference field limit: ~166 chars)."
+    }
+}
+
+// Spotlight Plan Functions
+
+// Get display value for spotlightPlanLights preference
+def getSpotlightPlanLightsDisplay() {
+    def value = settings.spotlightPlanLights
+    if (!value || value.trim() == "") {
+        return "Not set (will auto-extract from plan)"
+    }
+    return value.trim()
+}
+
+// Normalize LED indices: eliminate duplicates, sort, skip invalid
+def normalizeLedIndices(String ledIndices, int numColors) {
+    if (!ledIndices || ledIndices.trim() == "") {
+        return ""
+    }
+    
+    try {
+        def indices = []
+        def parts = ledIndices.split(",")
+        
+        parts.each { part ->
+            def trimmed = part.trim()
+            if (trimmed) {
+                try {
+                    def index = trimmed.toInteger()
+                    // Validate: 1-based indexing, must be between 1 and numColors
+                    if (index >= 1 && index <= numColors) {
+                        if (!indices.contains(index)) {
+                            indices.add(index)
+                        }
+                    } else {
+                        log.warn "Skipping invalid LED index ${index} (must be between 1 and ${numColors})"
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn "Skipping invalid LED index format: '${trimmed}'"
+                }
+            }
+        }
+        
+        // Sort numerically
+        indices.sort()
+        
+        return indices.join(",")
+    } catch (Exception e) {
+        log.error "Error normalizing LED indices: ${e.message}"
+        return ledIndices.trim()  // Return original on error
+    }
+}
+
+// Extract list of ON LEDs from plan colors array
+def extractOnLedsFromPlan(String colors, int numColors) {
+    if (!colors || colors.trim() == "") {
+        return ""
+    }
+    
+    try {
+        def onLeds = []
+        def parts = colors.split(",")
+        
+        // Colors array is comma-separated RGB triplets: R,G,B,R,G,B,...
+        // Each LED has 3 values, so LED index = (position / 3) + 1 (1-based)
+        for (int i = 0; i < parts.size(); i += 3) {
+            if (i + 2 < parts.size()) {
+                try {
+                    def r = parts[i].trim().toInteger()
+                    def g = parts[i + 1].trim().toInteger()
+                    def b = parts[i + 2].trim().toInteger()
+                    
+                    // If RGB values are not all zero, LED is ON
+                    if (r != 0 || g != 0 || b != 0) {
+                        def ledIndex = (i / 3) + 1  // 1-based indexing
+                        if (ledIndex >= 1 && ledIndex <= numColors) {
+                            onLeds.add(ledIndex)
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    debugLog "Skipping invalid RGB values at position ${i}"
+                }
+            }
+        }
+        
+        // Normalize the extracted list
+        return normalizeLedIndices(onLeds.join(","), numColors)
+    } catch (Exception e) {
+        log.error "Error extracting ON LEDs from plan: ${e.message}"
+        return ""
+    }
+}
+
+// Modify spotlight plan colors array based on spotlightPlanLights setting
+def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
+    if (!colors || colors.trim() == "") {
+        return colors
+    }
+    
+    try {
+        // Parse original colors array
+        def parts = colors.split(",")
+        def originalColors = []
+        for (int i = 0; i < parts.size(); i += 3) {
+            if (i + 2 < parts.size()) {
+                originalColors.add([
+                    r: parts[i].trim().toInteger(),
+                    g: parts[i + 1].trim().toInteger(),
+                    b: parts[i + 2].trim().toInteger()
+                ])
+            }
+        }
+        
+        // Initialize new colors array: all LEDs OFF
+        def newColors = []
+        for (int i = 0; i < numColors; i++) {
+            newColors.add([r: 0, g: 0, b: 0])
+        }
+        
+        // Parse spotlight LED indices
+        def ledIndices = []
+        if (spotlightLights && spotlightLights.trim() != "") {
+            def normalized = normalizeLedIndices(spotlightLights, numColors)
+            if (normalized) {
+                normalized.split(",").each { part ->
+                    try {
+                        ledIndices.add(part.trim().toInteger())
+                    } catch (NumberFormatException e) {
+                        // Skip invalid entries (already normalized)
+                    }
+                }
+            }
+        }
+        
+        // Set specified LEDs to ON using RGB values from original plan
+        ledIndices.each { ledIndex ->
+            // Convert 1-based index to 0-based array index
+            def arrayIndex = ledIndex - 1
+            if (arrayIndex >= 0 && arrayIndex < originalColors.size() && arrayIndex < newColors.size()) {
+                // Use RGB values from original plan
+                newColors[arrayIndex] = originalColors[arrayIndex]
+            }
+        }
+        
+        // Rebuild colors string
+        def colorStrings = []
+        newColors.each { color ->
+            colorStrings.add("${color.r},${color.g},${color.b}")
+        }
+        
+        return colorStrings.join(",")
+    } catch (Exception e) {
+        log.error "Error modifying spotlight plan: ${e.message}"
+        return colors  // Return original on error
+    }
+}
+
+// Find next empty slot in custom patterns list (supports up to 200 patterns)
 def findNextEmptyPatternSlot(List patterns) {
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 200; i++) {
         if (i >= patterns.size() || patterns[i] == null) {
             return i + 1  // Return 1-based slot number
         }
@@ -1137,7 +1561,7 @@ def buildEffectList() {
     return patternList.sort()
 }
 
-// Build pattern options for enum dropdown (patterns from state)
+// Build pattern options for enum dropdown (patterns from state, includes planType)
 def getPatternOptions() {
     def options = [:]
     
@@ -1150,16 +1574,23 @@ def getPatternOptions() {
         def storedPatterns = state.patterns ?: []
         storedPatterns.each { pattern ->
             if (pattern && pattern.name) {
-                patterns.add(pattern.name)
+                // Ensure planType exists (lazy evaluation)
+                def plan = ensurePlanType(pattern)
+                def planTypeDisplay = plan.planType ? " [${plan.planType}]" : ""
+                patterns.add([
+                    name: pattern.name,
+                    display: "${pattern.name}${planTypeDisplay}",
+                    planType: plan.planType ?: "non-spotlight"
+                ])
             }
         }
     } catch (Exception e) {
         // state not available during metadata parsing - that's OK
     }
     
-    // Add patterns (sorted)
-    patterns.sort().each { pattern ->
-        options[pattern] = pattern
+    // Add patterns (sorted by name, but display includes planType)
+    patterns.sort { it.name }.each { pattern ->
+        options[pattern.name] = pattern.display  // Key is name, value is display with planType
     }
     
     return options
@@ -1190,13 +1621,16 @@ def getPatternOptionsForCommand() {
     return options
 }
 
-// Update availablePatterns attribute with current pattern list
+// Update availablePatterns attribute with current pattern list (includes planType)
 def updateAvailablePatternsAttribute() {
     def patterns = state.patterns ?: []
     def patternNames = []
     patterns.each { pattern ->
         if (pattern && pattern.name) {
-            patternNames.add(pattern.name)
+            // Ensure planType exists (lazy evaluation)
+            def plan = ensurePlanType(pattern)
+            def planTypeDisplay = plan.planType ? " [${plan.planType}]" : ""
+            patternNames.add("${pattern.name}${planTypeDisplay}")
         }
     }
     def patternsList = patternNames.sort().join(", ")
@@ -1212,9 +1646,32 @@ def getPatternUrl(String effectName) {
     def pattern = patterns.find { it && it.name == effectName }
     if (pattern && pattern.urlParams) {
         debugLog "getPatternUrl: Found pattern '${effectName}'"
+        
+        // Lazy evaluation: ensure planType exists
+        pattern = ensurePlanType(pattern)
+        
         // Use stored URL parameters to build command URL
         def urlParams = pattern.urlParams.clone()
         urlParams.zones = zoneNumber  // Ensure zone number is current
+        
+        // Handle spotlight plan modification on use
+        if (pattern.planType == "spotlight") {
+            def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
+            // Use original colors if available, otherwise use current colors
+            def colors = pattern.originalColors ?: urlParams.colors ?: ""
+            def spotlightLights = settings.spotlightPlanLights
+            
+            if (spotlightLights && spotlightLights.trim() != "") {
+                // Normalize and modify
+                def normalized = normalizeLedIndices(spotlightLights, numColors)
+                if (normalized && normalized.trim() != "") {
+                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors)
+                    urlParams.colors = modifiedColors
+                    debugLog "Modified spotlight plan on use with LED indices: ${normalized}"
+                }
+            }
+        }
+        
         return buildCommandUrl(urlParams)
     }
     
