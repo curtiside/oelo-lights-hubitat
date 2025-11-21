@@ -112,8 +112,12 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.8.1
  */
+
+// Constants
+final String DRIVER_VERSION = "0.8.2"  // Driver version
+final int MAX_LEDS = 500  // Maximum number of LEDs per zone
+final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
 // Pattern Definitions - Must be defined before metadata block
 // All predefined patterns from Home Assistant integration
@@ -204,7 +208,6 @@ metadata {
         // Custom commands
         command "setPattern"
         command "getPattern"
-        command "savePatternString"
         command "on"
         command "off"
     }
@@ -230,13 +233,15 @@ metadata {
             input name: "deletePattern", type: "enum", title: "Delete Pattern", 
                 options: getPatternOptions(), 
                 required: false, description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
-            input name: "savePatternString", type: "text", title: "Save Pattern String", 
-                required: false, description: "Paste the complete pattern URL string here. If it's longer than ~166 chars, paste it in chunks - the driver will automatically combine them."
         }
         
         section("Spotlight Plan Settings") {
+            input name: "maxLeds", type: "number", title: "Maximum LEDs per Zone", 
+                required: false, defaultValue: MAX_LEDS, range: "1..500",
+                description: "Maximum number of LEDs in this zone (default: ${MAX_LEDS})"
             input name: "spotlightPlanLights", type: "text", title: "Spotlight Plan Lights", 
-                required: false, description: "Comma-delimited list of LED indices to turn on for spotlight plans (e.g., '1,3,5,7,9'). Current value: ${getSpotlightPlanLightsDisplay()}"
+                required: false, defaultValue: DEFAULT_SPOTLIGHT_PLAN_LIGHTS,
+                description: "Comma-delimited list of LED indices to turn on for spotlight plans (e.g., '1,3,5,7,9').\n\nCurrent value:\n${getSpotlightPlanLightsDisplay()}"
         }
         
         section("Polling") {
@@ -270,20 +275,7 @@ def installed() {
 def updated() {
     log.warn "updated() preference action called"
     log.info "Oelo Lights Zone driver updated"
-    log.warn "=== UPDATED() FUNCTION STARTED ==="
     debugLog "updated() called - checking all preferences"
-    
-    // Log all preference values for debugging
-    log.warn "=== PREFERENCE VALUES DEBUG ==="
-    log.warn "settings.savePatternString exists: ${settings.savePatternString != null}"
-    log.warn "settings.savePatternString value length: ${settings.savePatternString ? settings.savePatternString.length() : 0}"
-    if (settings.savePatternString) {
-        log.warn "settings.savePatternString first 100 chars: ${settings.savePatternString.take(100)}"
-        log.warn "settings.savePatternString last 100 chars: ${settings.savePatternString.takeRight(100)}"
-    }
-    log.warn "state.patternStringPartial exists: ${state.patternStringPartial != null}"
-    log.warn "state.patternStringPartial length: ${state.patternStringPartial ? state.patternStringPartial.length() : 0}"
-    log.warn "=== END PREFERENCE VALUES DEBUG ==="
     
     // Set driver version immediately
     setDriverVersion()
@@ -385,15 +377,14 @@ def updated() {
         // Normalize new value
         def normalized = currentSpotlightLights.trim()
         if (normalized) {
-            // Get numColors from first spotlight plan (or use default)
-            def patterns = state.patterns ?: []
-            def spotlightPlan = patterns.find { it && it.planType == "spotlight" }
-            def numColors = spotlightPlan?.urlParams?.num_colors ? spotlightPlan.urlParams.num_colors.toInteger() : 156
-            normalized = normalizeLedIndices(normalized, numColors)
+            // Use preference if set, otherwise use constant (convert to integer)
+            def maxLeds = (settings.maxLeds ?: MAX_LEDS).toInteger()
+            normalized = normalizeLedIndices(normalized, maxLeds)
             
             // Save normalized value back to preference if it changed
+            // Note: Can't update settings in drivers, but normalized value will be used
             if (normalized != currentSpotlightLights) {
-                app.updateSetting("spotlightPlanLights", normalized)
+                debugLog "Normalized spotlightPlanLights differs from setting, using normalized value"
                 currentSpotlightLights = normalized
             }
         }
@@ -409,7 +400,7 @@ def updated() {
                 def colors = pattern.originalColors ?: urlParams.colors ?: ""
                 
                 if (normalized && normalized.trim() != "") {
-                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors)
+                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors.toInteger())
                     urlParams.colors = modifiedColors
                     patterns[index] = pattern
                     modifiedCount++
@@ -428,117 +419,21 @@ def updated() {
         state.previousSpotlightPlanLights = currentSpotlightLights
     } else if (currentSpotlightLights && currentSpotlightLights.trim() != "") {
         // Normalize even if value didn't change (in case user entered invalid format)
-        def patterns = state.patterns ?: []
-        def spotlightPlan = patterns.find { it && it.planType == "spotlight" }
-        def numColors = spotlightPlan?.urlParams?.num_colors ? spotlightPlan.urlParams.num_colors.toInteger() : 156
-        def normalized = normalizeLedIndices(currentSpotlightLights, numColors)
+        // Use actual LED count (500) for normalization, not num_colors (which is RGB triplets)
+        def maxLeds = 500  // Default zone LED count
+        def normalized = normalizeLedIndices(currentSpotlightLights, maxLeds)
         if (normalized != currentSpotlightLights) {
-            app.updateSetting("spotlightPlanLights", normalized)
+            debugLog "Normalized spotlightPlanLights differs from setting, using normalized value"
             state.previousSpotlightPlanLights = normalized
         }
     }
-    
-    // Handle pattern string saving - automatically detect truncation and combine parts
-    // Hubitat preference field limit is ~166 characters, so we handle truncation automatically
-    log.warn "=== CHECKING PATTERN STRING PREFERENCE ==="
-    log.warn "Preference field exists: ${settings.savePatternString != null}"
-    log.warn "Preference field value is empty: ${settings.savePatternString == null || settings.savePatternString.trim() == ''}"
-    
-    if (settings.savePatternString && settings.savePatternString.trim() != "") {
-        def patternString = settings.savePatternString.trim()
-        log.warn "Preference action: Saving pattern from string field"
-        log.warn "Pattern string length: ${patternString.length()} characters"
-        log.warn "Pattern string starts with: ${patternString.take(50)}"
-        log.warn "Pattern string ends with: ${patternString.takeRight(50)}"
-        debugLog "Pattern string FULL VALUE: ${patternString}"
-        
-        // Check if it looks truncated:
-        // 1. Doesn't start with "patternType=" (truncated from beginning)
-        // 2. Doesn't end with "pause=0" (truncated from end)
-        // 3. Length is around 166 chars (Hubitat's limit)
-        def isTruncated = false
-        def truncationReason = ""
-        
-        if (!patternString.startsWith("patternType=")) {
-            isTruncated = true
-            truncationReason = "missing beginning (doesn't start with 'patternType=')"
-        } else if (!patternString.endsWith("pause=0") && patternString.length() < 1200) {
-            isTruncated = true
-            truncationReason = "missing end (doesn't end with 'pause=0' and length < 1200)"
-        } else if (patternString.length() >= 150 && patternString.length() < 1200) {
-            isTruncated = true
-            truncationReason = "length suggests truncation (${patternString.length()} chars, expected ~1282)"
-        }
-        
-        if (isTruncated) {
-            log.warn "WARNING: Pattern string appears truncated! Reason: ${truncationReason}"
-            log.warn "Hubitat preference field max length: ~166 characters"
-            
-            // Check if we have a previous partial string
-            if (state.patternStringPartial && state.patternStringPartial.trim() != "") {
-                log.info "Found previous partial string (${state.patternStringPartial.length()} chars)"
-                debugLog "Previous partial ends with: ...${state.patternStringPartial.takeRight(50)}"
-                debugLog "New part starts with: ${patternString.take(50)}..."
-                
-                // Combine: previous partial + new part
-                def combined = state.patternStringPartial + patternString
-                log.info "Combined length: ${combined.length()} characters"
-                debugLog "Combined string starts: ${combined.take(50)}..."
-                debugLog "Combined string ends: ...${combined.takeRight(50)}"
-                
-                // Check if now complete
-                if ((combined.startsWith("patternType=") && combined.endsWith("pause=0")) || combined.length() >= 1200) {
-                    log.info "Combined string appears complete - processing..."
-                    processPatternString(combined)
-                    state.patternStringPartial = null
-                    state.patternStringToSave = null
-                    log.info "Pattern saved successfully! Clearing partial state."
-                } else {
-                    log.warn "Combined string still incomplete (${combined.length()} chars) - storing partial"
-                    state.patternStringPartial = combined
-                    log.info "Stored combined partial (${combined.length()} chars)"
-                    log.info "INSTRUCTIONS: Paste the next chunk (~166 chars) into the same field and save again"
-                    log.info "Continue until the string ends with 'pause=0' (total should be ~1282 chars)"
-                }
-            } else {
-                // First part - store as partial
-                log.warn "Storing as partial string (first chunk)"
-                state.patternStringPartial = patternString
-                log.info "Stored partial pattern string (${patternString.length()} chars)"
-                log.info "INSTRUCTIONS: Paste the next chunk (~166 chars) into the same field and save again"
-                log.info "Continue until the string ends with 'pause=0' (total should be ~1282 chars)"
-            }
-        } else {
-            // Appears complete - process it
-            log.info "Pattern string appears complete (${patternString.length()} chars) - processing..."
-            processPatternString(patternString)
-            state.patternStringPartial = null
-            state.patternStringToSave = null
-            log.info "Pattern saved successfully!"
-        }
-    } else if (state.patternStringPartial && state.patternStringPartial.trim() != "") {
-        // No new input but we have a partial
-        log.info "Found partial pattern string in state (${state.patternStringPartial.length()} chars)"
-        log.warn "No new pattern string input - partial string not processed"
-        log.warn "To complete: paste the next chunk into 'Save Pattern String' field and save again"
-    } else if (state.patternStringToSave && state.patternStringToSave.trim() != "") {
-        // Legacy: process from state.patternStringToSave
-        log.info "Processing pattern string from state.patternStringToSave (${state.patternStringToSave.length()} chars)"
-        def patternString = state.patternStringToSave.trim()
-        processPatternString(patternString)
-        state.patternStringToSave = null
-        debugLog "Cleared state.patternStringToSave after processing"
-    } else {
-        debugLog "No pattern string found in preference field or state"
-    }
-    log.warn "=== END PATTERN STRING PREFERENCE CHECK ==="
     
     initialize()
 }
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.8.1"
+    def driverVersion = DRIVER_VERSION
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -694,6 +589,34 @@ def setEffect(String effectName) {
         return
     }
     
+    // Validate the pattern URL before sending
+    def urlParams = parseUrlParams(patternUrl)
+    if (!validatePatternUrl(patternUrl, urlParams)) {
+        log.error "Invalid pattern URL for '${effectName}': validation failed"
+        log.error "Invalid URL (full): ${patternUrl}"
+        return
+    }
+    
+    // Check if this would be a no-op (same as what's currently active)
+    // Skip no-op detection for spotlight plans since they're modified and won't match controller state
+    def patterns = state.patterns ?: []
+    def pattern = patterns.find { it && it.name == effectName }
+    if (pattern && pattern.urlParams && pattern.urlParams.originalUrlString) {
+        // Ensure planType exists (lazy evaluation)
+        pattern = ensurePlanType(pattern)
+        
+        // Skip spotlight plans - they're modified so URL comparison won't work
+        if (pattern.planType != "spotlight") {
+            // Compare with stored original URL (normalize for comparison)
+            def storedUrl = pattern.urlParams.originalUrlString
+            if (normalizeUrlForComparison(patternUrl) == normalizeUrlForComparison(storedUrl)) {
+                debugLog "Pattern '${effectName}' URL matches stored URL - checking if controller state matches..."
+                // Could fetch current state and compare, but for now just log
+                debugLog "No-op detected: URL matches stored pattern"
+            }
+        }
+    }
+    
     // Send command and store for future on() calls
     def success = sendCommand(patternUrl)
     if (success) {
@@ -799,28 +722,31 @@ def getPattern() {
             def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
             def colors = urlParams.colors ?: ""
             
-            // Check if spotlightPlanLights is null/empty - extract from plan
+            // Get actual LED count: prefer preference, then zone data, then constant
+            // Convert to integer to ensure proper type
+            def maxLeds = (settings.maxLeds ?: zoneData.ledCnt ?: zoneData.numberOfColors ?: MAX_LEDS).toInteger()
+            debugLog "Using maxLeds=${maxLeds} for normalization (preference=${settings.maxLeds}, ledCnt=${zoneData.ledCnt}, numberOfColors=${zoneData.numberOfColors}, num_colors=${numColors})"
+            
+            // Use default spotlight plan lights constant
+            def defaultSpotlightLights = DEFAULT_SPOTLIGHT_PLAN_LIGHTS
+            
+            // Check if spotlightPlanLights is null/empty - use default, otherwise use setting
             def spotlightLights = settings.spotlightPlanLights
             if (!spotlightLights || spotlightLights.trim() == "") {
-                debugLog "spotlightPlanLights is empty, extracting from received plan..."
-                spotlightLights = extractOnLedsFromPlan(colors, numColors)
-                if (spotlightLights) {
-                    // Save extracted list (normalized)
-                    app.updateSetting("spotlightPlanLights", spotlightLights)
-                    log.info "Auto-extracted spotlight plan lights: ${spotlightLights}"
-                }
-            } else {
-                // Normalize existing setting
-                spotlightLights = normalizeLedIndices(spotlightLights, numColors)
-                // Save normalized value if it changed
-                if (spotlightLights != settings.spotlightPlanLights) {
-                    app.updateSetting("spotlightPlanLights", spotlightLights)
-                }
+                debugLog "spotlightPlanLights is empty, using default value..."
+                spotlightLights = defaultSpotlightLights
+            }
+            
+            // Normalize the value (whether from setting or default) using actual LED count
+            spotlightLights = normalizeLedIndices(spotlightLights, maxLeds)
+            // Note: Can't update settings in drivers, but normalized value will be used
+            if (spotlightLights != settings.spotlightPlanLights && spotlightLights != defaultSpotlightLights) {
+                debugLog "Normalized spotlightPlanLights differs from setting, using normalized value"
             }
             
             // Modify colors array based on spotlightPlanLights
             if (spotlightLights && spotlightLights.trim() != "") {
-                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors)
+                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors.toInteger())
                 urlParams.colors = modifiedColors
                 debugLog "Modified spotlight plan colors using LED indices: ${spotlightLights}"
             }
@@ -861,9 +787,20 @@ def getPattern() {
         debugLog "Generated stable pattern ID: '${patternId}'"
         debugLog "[SUCCESS] Step 6: Stable pattern ID determined: '${patternId}'"
         
-        // Check full length warning (after patternId is defined)
+        // Build and validate the complete pattern URL string
         def patternString = buildCommandUrl(urlParams)
         checkPlanStringLength(patternString, patternId)
+        
+        // Validate the complete pattern URL string
+        if (!validatePatternUrl(patternString, urlParams)) {
+            log.error "[FAILED] Pattern URL validation failed for pattern '${patternId}'"
+            log.error "Invalid pattern URL (full): ${patternString}"
+            debugLog "=== GET PATTERN COMMAND FAILED ==="
+            return
+        }
+        
+        // Store the original URL string for no-op detection
+        urlParams.originalUrlString = patternString
         
         debugLog "[Step 7] Retrieving patterns list from state..."
         // Get patterns list
@@ -945,243 +882,6 @@ def getPattern() {
             
             debugLog "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
         }
-    }
-}
-
-// Custom command: Save pattern from URL parameter string
-// Can be called with parameter via Rule Machine, or will use state.patternStringToSave or settings if no parameter
-def savePatternString(String patternString = null) {
-    log.warn "savePatternString() command called"
-    log.info "=== SAVE PATTERN STRING COMMAND STARTED ==="
-    log.warn "=== CHECKING FOR PATTERN STRING ==="
-    
-    // If no parameter provided, check multiple sources for the string
-    if (!patternString || patternString.trim() == "") {
-        debugLog "No parameter provided, checking state and settings..."
-        
-        // First check state (stored from preference save attempt)
-        debugLog "Checking state.patternStringToSave..."
-        debugLog "state.patternStringToSave exists: ${state.patternStringToSave != null}"
-        debugLog "state.patternStringToSave value: ${state.patternStringToSave}"
-        debugLog "state.patternStringToSave length: ${state.patternStringToSave ? state.patternStringToSave.length() : 0}"
-        patternString = state.patternStringToSave
-        
-        // If not in state, check settings (sometimes available even if save "failed")
-        if (!patternString || patternString.trim() == "") {
-            debugLog "state.patternStringToSave is empty, checking settings.savePatternString..."
-            debugLog "settings.savePatternString exists: ${settings.savePatternString != null}"
-            debugLog "settings.savePatternString value: ${settings.savePatternString}"
-            debugLog "settings.savePatternString length: ${settings.savePatternString ? settings.savePatternString.length() : 0}"
-            
-            patternString = settings.savePatternString
-            if (patternString && patternString.trim() != "") {
-                log.info "Found pattern string in settings (preference field)"
-                debugLog "Found pattern string in settings, storing in state..."
-                // Store it in state for future use
-                state.patternStringToSave = patternString.trim()
-                debugLog "Stored in state.patternStringToSave, length: ${state.patternStringToSave.length()}"
-            } else {
-                debugLog "settings.savePatternString is also empty or null"
-            }
-        } else {
-            log.info "Using pattern string from state.patternStringToSave"
-            debugLog "Using pattern string from state, length: ${patternString.length()}"
-        }
-        
-        // Still empty? Show error
-        if (!patternString || patternString.trim() == "") {
-            log.error "Pattern string is empty."
-            log.error "Checked state.patternStringToSave: ${state.patternStringToSave != null ? 'exists but empty' : 'null'}"
-            log.error "Checked settings.savePatternString: ${settings.savePatternString != null ? 'exists but empty' : 'null'}"
-            log.error "To use this command:"
-            log.error "1. Paste your pattern string into the 'Save Pattern String' preference field"
-            log.error "2. Click 'Save Preferences' (even if it says it failed)"
-            log.error "3. Immediately run this command - it will try to read from the preference field"
-            log.error "Alternative: Use Rule Machine to set device state 'patternStringToSave' to your pattern string, then run this command"
-            return
-        }
-        
-        // Clear state after use (but keep settings in case user wants to try again)
-        state.patternStringToSave = null
-        debugLog "Cleared state.patternStringToSave after reading"
-    } else {
-        debugLog "Parameter provided, using parameter (length: ${patternString.length()})"
-    }
-    
-    // Process the pattern string
-    log.info "Processing pattern string (length: ${patternString.length()})..."
-    processPatternString(patternString)
-}
-
-// Shared function to process pattern string (used by both preference handler and command)
-def processPatternString(String patternString) {
-    log.warn "processPatternString() called with string length: ${patternString?.length() ?: 0} characters"
-    try {
-        if (!patternString || patternString.trim() == "") {
-            log.error "processPatternString: Pattern string is empty or null"
-            return
-        }
-        
-        log.info "Pattern string length: ${patternString.length()} characters"
-        log.warn "Pattern string starts with: ${patternString.take(50)}"
-        log.warn "Pattern string ends with: ${patternString.takeRight(50)}"
-        
-        // Use the same parsing logic as the preference handler
-        def paramsString = patternString.trim()
-        if (paramsString.contains("setPattern?")) {
-            paramsString = paramsString.substring(paramsString.indexOf("setPattern?") + "setPattern?".length())
-        }
-        if (paramsString.contains("?")) {
-            paramsString = paramsString.substring(paramsString.indexOf("?") + 1)
-        }
-        
-        debugLog "Parsed params string length: ${paramsString.length()} characters"
-        
-        // Parse URL parameters into a map
-        def urlParams = [:]
-        def paramPairs = paramsString.split("&")
-        paramPairs.each { pair ->
-            def parts = pair.split("=", 2)
-            if (parts.size() == 2) {
-                def key = java.net.URLDecoder.decode(parts[0], "UTF-8")
-                def value = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                urlParams[key] = value
-            }
-        }
-        
-        debugLog "Parsed ${urlParams.size()} parameters"
-        
-        // Extract pattern type
-        def patternType = urlParams.patternType ?: urlParams.pattern ?: "off"
-        if (patternType == "off") {
-            log.error "Cannot save pattern: Pattern type is 'off'"
-            return
-        }
-        
-        // Detect plan type
-        def planType = identifyPlanType(patternType)
-        debugLog "Plan type detected: '${planType}'"
-        
-        // Store original colors for spotlight plans BEFORE modification
-        def originalColors = null
-        if (planType == "spotlight" && urlParams.colors) {
-            originalColors = urlParams.colors
-        }
-        
-        // Handle spotlight plan modification
-        if (planType == "spotlight") {
-            debugLog "Processing spotlight plan modification..."
-            def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
-            def colors = urlParams.colors ?: ""
-            
-            // Check if spotlightPlanLights is null/empty - extract from plan
-            def spotlightLights = settings.spotlightPlanLights
-            if (!spotlightLights || spotlightLights.trim() == "") {
-                debugLog "spotlightPlanLights is empty, extracting from received plan..."
-                spotlightLights = extractOnLedsFromPlan(colors, numColors)
-                if (spotlightLights) {
-                    // Save extracted list (normalized)
-                    app.updateSetting("spotlightPlanLights", spotlightLights)
-                    log.info "Auto-extracted spotlight plan lights: ${spotlightLights}"
-                }
-            } else {
-                // Normalize existing setting
-                spotlightLights = normalizeLedIndices(spotlightLights, numColors)
-                // Save normalized value if it changed
-                if (spotlightLights != settings.spotlightPlanLights) {
-                    app.updateSetting("spotlightPlanLights", spotlightLights)
-                }
-            }
-            
-            // Modify colors array based on spotlightPlanLights
-            if (spotlightLights && spotlightLights.trim() != "") {
-                def modifiedColors = modifySpotlightPlan(colors, spotlightLights, numColors)
-                urlParams.colors = modifiedColors
-                debugLog "Modified spotlight plan colors using LED indices: ${spotlightLights}"
-            }
-        }
-        
-        // Check full length warning
-        checkPlanStringLength(patternString, patternType)
-        
-        // Generate stable pattern ID from parameters
-        // Note: Zone number is not included since each device instance is zone-specific
-        def patternId = patternType.toString()
-        def suffixParts = []
-        if (urlParams.direction && urlParams.direction != "0" && urlParams.direction != "F") {
-            suffixParts.add("dir${urlParams.direction}")
-        }
-        if (urlParams.speed && urlParams.speed != "0") {
-            suffixParts.add("spd${urlParams.speed}")
-        }
-        if (urlParams.num_colors && urlParams.num_colors != "1") {
-            suffixParts.add("${urlParams.num_colors}colors")
-        }
-        
-        // Build stable ID from pattern type and parameters (no zone - device is zone-specific)
-        if (suffixParts.isEmpty()) {
-            patternId = patternType.toString()
-        } else {
-            patternId = "${patternType}_${suffixParts.join('_')}"
-        }
-        
-        def patternName = patternId
-        def patterns = state.patterns ?: []
-        
-        // Check if pattern with same ID already exists
-        def existingIndex = patterns.findIndexOf { it && it.id == patternId }
-        
-        if (existingIndex >= 0) {
-            def existingName = patterns[existingIndex].name ?: patternId
-            // originalColors is already declared earlier in function scope (line 1065)
-            // It was set before modification, so use it directly
-            patterns[existingIndex] = [
-                id: patternId,
-                name: existingName,
-                urlParams: urlParams,
-                planType: planType,
-                originalColors: originalColors  // Already set earlier before modification
-            ]
-            state.patterns = patterns
-            updateAvailablePatternsAttribute()
-            
-            // Track most recently captured pattern for rename pre-selection
-            state.lastCapturedPatternName = existingName
-            
-            log.info "Updated existing pattern '${existingName}' (ID: ${patternId}) from string (planType: ${planType})"
-        } else {
-            def nextSlot = findNextEmptyPatternSlot(patterns)
-            if (nextSlot == -1) {
-                log.error "Cannot save pattern: No empty slots available (maximum 200 patterns)"
-                return
-            }
-            
-            if (patterns.size() < nextSlot) {
-                while (patterns.size() < nextSlot) {
-                    patterns.add(null)
-                }
-            }
-            patterns[nextSlot - 1] = [
-                id: patternId,
-                name: patternName,
-                urlParams: urlParams,
-                planType: planType,
-                originalColors: originalColors  // Store original for spotlight plans (set earlier)
-            ]
-            state.patterns = patterns
-            updateAvailablePatternsAttribute()
-            
-            // Track most recently captured pattern for rename pre-selection
-            state.lastCapturedPatternName = patternName
-            
-            log.info "Saved new pattern '${patternName}' (ID: ${patternId}) from string in slot ${nextSlot} (planType: ${planType})"
-        }
-        
-        log.info "=== SAVE PATTERN STRING COMMAND COMPLETED SUCCESSFULLY ==="
-    } catch (Exception e) {
-        def errorMsg = e.message ?: e.toString()
-        log.error "Error saving pattern from string: ${errorMsg}"
-        debugLog "Exception: ${e.toString()}"
     }
 }
 
@@ -1337,7 +1037,7 @@ def checkPlanStringLength(String patternString, String patternName) {
 
 // Spotlight Plan Functions
 
-// Get display value for spotlightPlanLights preference
+// Get display value for spotlightPlanLights preference (with word wrapping)
 def getSpotlightPlanLightsDisplay() {
     // Handle null settings during metadata parsing
     if (!settings) {
@@ -1347,7 +1047,36 @@ def getSpotlightPlanLightsDisplay() {
     if (!value || value.trim() == "") {
         return "Not set (will auto-extract from plan)"
     }
-    return value.trim()
+    
+    // Word wrap the value: break into chunks of ~15 items per line for better display
+    def trimmed = value.trim()
+    def parts = trimmed.split(",")
+    def wrapped = []
+    def currentLine = []
+    def lineLength = 0
+    def maxLineLength = 50  // Approximate characters per line
+    
+    parts.each { part ->
+        def trimmedPart = part.trim()
+        if (trimmedPart) {
+            def partLength = trimmedPart.length() + 1  // +1 for comma
+            if (lineLength + partLength > maxLineLength && currentLine.size() > 0) {
+                // Start new line
+                wrapped.add(currentLine.join(","))
+                currentLine = [trimmedPart]
+                lineLength = partLength
+            } else {
+                currentLine.add(trimmedPart)
+                lineLength += partLength
+            }
+        }
+    }
+    
+    if (currentLine.size() > 0) {
+        wrapped.add(currentLine.join(","))
+    }
+    
+    return wrapped.join(",\n")
 }
 
 // Normalize LED indices: eliminate duplicates, sort, skip invalid
@@ -1411,7 +1140,10 @@ def extractOnLedsFromPlan(String colors, int numColors) {
                     // If RGB values are not all zero, LED is ON
                     if (r != 0 || g != 0 || b != 0) {
                         def ledIndex = (i / 3) + 1  // 1-based indexing
-                        if (ledIndex >= 1 && ledIndex <= numColors) {
+                        // Use preference if set, otherwise use constant for validation
+                        // numColors is RGB triplets, not total LEDs
+                        def maxLeds = settings.maxLeds ?: MAX_LEDS
+                        if (ledIndex >= 1 && ledIndex <= maxLeds) {
                             onLeds.add(ledIndex)
                         }
                     }
@@ -1421,8 +1153,9 @@ def extractOnLedsFromPlan(String colors, int numColors) {
             }
         }
         
-        // Normalize the extracted list
-        return normalizeLedIndices(onLeds.join(","), numColors)
+        // Normalize the extracted list using preference if set, otherwise use constant
+        def maxLeds = settings.maxLeds ?: MAX_LEDS
+        return normalizeLedIndices(onLeds.join(","), maxLeds)
     } catch (Exception e) {
         log.error "Error extracting ON LEDs from plan: ${e.message}"
         return ""
@@ -1456,9 +1189,12 @@ def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
         }
         
         // Parse spotlight LED indices
+        // Note: numColors is RGB triplets in colors array, but we need actual LED count for normalization
+        // Use preference if set, otherwise use constant (ensure integer type)
+        def maxLeds = (settings.maxLeds ?: MAX_LEDS).toInteger()
         def ledIndices = []
         if (spotlightLights && spotlightLights.trim() != "") {
-            def normalized = normalizeLedIndices(spotlightLights, numColors)
+            def normalized = normalizeLedIndices(spotlightLights, maxLeds)
             if (normalized) {
                 normalized.split(",").each { part ->
                     try {
@@ -1486,10 +1222,156 @@ def modifySpotlightPlan(String colors, String spotlightLights, int numColors) {
             colorStrings.add("${color.r},${color.g},${color.b}")
         }
         
-        return colorStrings.join(",")
+        def result = colorStrings.join(",")
+        
+        // Validate the result
+        if (!validateColorsString(result, numColors)) {
+            log.error "Invalid colors string generated: expected ${numColors} RGB triplets, got ${colorStrings.size()}"
+            log.error "Generated colors string (full): ${result}"
+            // Return original colors if validation fails
+            return colors
+        }
+        
+        return result
     } catch (Exception e) {
         log.error "Error modifying spotlight plan: ${e.message}"
         return colors  // Return original on error
+    }
+}
+
+// Validate complete pattern URL string
+def validatePatternUrl(String url, Map urlParams) {
+    if (!url || url.trim() == "") {
+        return false
+    }
+    
+    try {
+        // Check URL format
+        if (!url.startsWith("http://") || !url.contains("/setPattern?")) {
+            log.warn "Pattern URL validation failed: Invalid URL format"
+            return false
+        }
+        
+        // Validate required parameters exist
+        def requiredParams = ["patternType", "zones", "num_zones", "num_colors", "colors", "direction", "speed", "gap", "other", "pause"]
+        requiredParams.each { param ->
+            if (!urlParams || !urlParams.containsKey(param)) {
+                log.warn "Pattern URL validation failed: Missing required parameter '${param}'"
+                return false
+            }
+        }
+        
+        // Validate colors string
+        def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 0
+        if (numColors > 0 && urlParams.colors) {
+            if (!validateColorsString(urlParams.colors, numColors)) {
+                log.warn "Pattern URL validation failed: Colors string validation failed"
+                return false
+            }
+        }
+        
+        // Validate numeric parameters are in valid ranges
+        def zones = urlParams.zones ? urlParams.zones.toInteger() : 0
+        if (zones < 1 || zones > 6) {
+            log.warn "Pattern URL validation failed: Invalid zones value: ${zones}"
+            return false
+        }
+        
+        def speed = urlParams.speed ? urlParams.speed.toInteger() : 0
+        if (speed < 0 || speed > 255) {
+            log.warn "Pattern URL validation failed: Invalid speed value: ${speed}"
+            return false
+        }
+        
+        debugLog "Pattern URL validation passed: all parameters valid"
+        return true
+    } catch (Exception e) {
+        log.error "Pattern URL validation error: ${e.message}"
+        return false
+    }
+}
+
+// Normalize URL for comparison (remove IP, sort params, etc.)
+def normalizeUrlForComparison(String url) {
+    if (!url) return ""
+    try {
+        // Extract just the query string part
+        def queryPart = url.contains("?") ? url.substring(url.indexOf("?") + 1) : url
+        // Parse and rebuild with sorted params for consistent comparison
+        def params = parseUrlParams(url)
+        if (!params) return queryPart
+        
+        // Rebuild with sorted keys for comparison
+        def sortedKeys = params.keySet().sort()
+        def normalized = sortedKeys.collect { k -> "${k}=${params[k]}" }.join("&")
+        return normalized
+    } catch (Exception e) {
+        debugLog "Error normalizing URL for comparison: ${e.message}"
+        return url
+    }
+}
+
+// Parse URL parameters from a URL string
+def parseUrlParams(String url) {
+    try {
+        def params = [:]
+        def queryPart = url.contains("?") ? url.substring(url.indexOf("?") + 1) : url
+        def pairs = queryPart.split("&")
+        pairs.each { pair ->
+            def parts = pair.split("=", 2)
+            if (parts.size() == 2) {
+                def key = java.net.URLDecoder.decode(parts[0], "UTF-8")
+                def value = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                params[key] = value
+            }
+        }
+        return params
+    } catch (Exception e) {
+        log.error "Error parsing URL params: ${e.message}"
+        return [:]
+    }
+}
+
+// Validate colors string format and content
+def validateColorsString(String colors, int expectedTriplets) {
+    if (!colors || colors.trim() == "") {
+        return false
+    }
+    
+    try {
+        def parts = colors.split(",")
+        def tripletCount = parts.size() / 3
+        
+        // Check we have the right number of RGB triplets
+        if (tripletCount != expectedTriplets) {
+            log.warn "Colors string validation failed: expected ${expectedTriplets} triplets, got ${tripletCount} (${parts.size()} values)"
+            return false
+        }
+        
+        // Validate all RGB values are in valid range (0-255)
+        for (int i = 0; i < parts.size(); i += 3) {
+            if (i + 2 < parts.size()) {
+                try {
+                    def r = parts[i].trim().toInteger()
+                    def g = parts[i + 1].trim().toInteger()
+                    def b = parts[i + 2].trim().toInteger()
+                    
+                    if (r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) {
+                        log.warn "Colors string validation failed: RGB values out of range at triplet ${i/3 + 1}: R=${r}, G=${g}, B=${b}"
+                        return false
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn "Colors string validation failed: Invalid number format at position ${i}: ${e.message}"
+                    return false
+                }
+            }
+        }
+        
+        debugLog "Colors string validation passed: ${tripletCount} RGB triplets, all values in valid range"
+        return true
+    } catch (Exception e) {
+        log.error "Colors string validation error: ${e.message}"
+        return false
     }
 }
 
@@ -1663,16 +1545,27 @@ def getPatternUrl(String effectName) {
             def numColors = urlParams.num_colors ? urlParams.num_colors.toInteger() : 1
             // Use original colors if available, otherwise use current colors
             def colors = pattern.originalColors ?: urlParams.colors ?: ""
-            def spotlightLights = settings.spotlightPlanLights
             
-            if (spotlightLights && spotlightLights.trim() != "") {
-                // Normalize and modify
-                def normalized = normalizeLedIndices(spotlightLights, numColors)
-                if (normalized && normalized.trim() != "") {
-                    def modifiedColors = modifySpotlightPlan(colors, normalized, numColors)
-                    urlParams.colors = modifiedColors
-                    debugLog "Modified spotlight plan on use with LED indices: ${normalized}"
-                }
+            // Use default spotlight plan lights constant
+            def defaultSpotlightLights = DEFAULT_SPOTLIGHT_PLAN_LIGHTS
+            
+            // Use setting if available, otherwise use default
+            def spotlightLights = settings.spotlightPlanLights
+            if (!spotlightLights || spotlightLights.trim() == "") {
+                spotlightLights = defaultSpotlightLights
+            }
+            
+            // Use preference if set, otherwise use constant for normalization
+            // numColors is RGB triplets, not total LEDs
+            def maxLeds = settings.maxLeds ?: MAX_LEDS
+            debugLog "Using maxLeds=${maxLeds} for normalization in getPatternUrl (num_colors=${numColors} is RGB triplets)"
+            
+            // Normalize and modify
+            def normalized = normalizeLedIndices(spotlightLights, maxLeds.toInteger())
+            if (normalized && normalized.trim() != "") {
+                def modifiedColors = modifySpotlightPlan(colors, normalized, numColors.toInteger())
+                urlParams.colors = modifiedColors
+                debugLog "Modified spotlight plan on use with LED indices: ${normalized}"
             }
         }
         
@@ -1914,29 +1807,6 @@ def parseCommandExpectation(String url) {
     }
 }
 
-// Parse command URL to extract parameters (helper for URL decoding)
-def parseUrlParams(String url) {
-    try {
-        def uri = new URI(url)
-        def query = uri.query
-        if (!query) return [:]
-        
-        def params = [:]
-        query.split("&").each { param ->
-            def parts = param.split("=", 2)
-            if (parts.length == 2) {
-                def key = java.net.URLDecoder.decode(parts[0], "UTF-8")
-                def value = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                params[key] = value
-            }
-        }
-        return params
-    } catch (Exception e) {
-        log.error "Error parsing URL params: ${e.message}"
-        return [:]
-    }
-}
-
 // Check if current state matches expected state
 def matchesExpectedState(Map currentState, Map expectedState) {
     if (!currentState || !expectedState) return false
@@ -2080,7 +1950,9 @@ def fetchZoneData(Closure callback) {
                             if (callback) callback(null)
                         }
                     } catch (Exception e) {
-                        log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${zones.take(200)}"
+                        def zonesStr = zones?.toString() ?: ""
+                        def preview = zonesStr.length() > 200 ? zonesStr.substring(0, 200) : zonesStr
+                        log.error "Failed to parse JSON string: ${e.message}. First 200 chars: ${preview}"
                         debugLog "=== END RESPONSE DEBUG ==="
                         if (callback) callback(null)
                     }
@@ -2113,7 +1985,9 @@ def fetchZoneData(Closure callback) {
                 }
                 
                 // If it's something else, log what we got
-                log.error "Unexpected response.data type. Value: ${zones?.toString()?.take(200) ?: 'null'}"
+                def zonesStr = zones?.toString() ?: "null"
+                def preview = zonesStr.length() > 200 ? zonesStr.substring(0, 200) : zonesStr
+                log.error "Unexpected response.data type. Value: ${preview}"
                 if (callback) callback(null)
             } else {
                 log.error "Fetch zone data failed with HTTP status: ${response.status}"

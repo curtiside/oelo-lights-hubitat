@@ -5,9 +5,12 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 ## Features
 
 - **Multi-Zone Control**: Control up to 6 independent zones (requires separate virtual device per zone)
-- **Pattern Capture**: Capture patterns created/edited in the Oelo app and save them for future use (up to 20 patterns)
+- **Pattern Capture**: Capture patterns created/edited in the Oelo app and save them for future use (up to 200 patterns)
+- **Pattern Types**: Support for spotlight plans and non-spotlight plans with automatic type detection
+- **Spotlight Plans**: Customize which LEDs are active in spotlight patterns via Spotlight Plan Lights setting
 - **Simple Commands**: Easy-to-use commands for setting patterns and turning lights on/off
 - **Auto-Polling**: Automatic status polling with configurable intervals
+- **Pattern Validation**: Full validation of captured patterns ensures reliability
 - **No Authentication Required**: Simple HTTP API with no credentials needed
 
 ## Installation
@@ -47,7 +50,9 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 
 - **Poll Interval**: How often to poll controller status (default: 30 seconds)
 - **Auto Polling**: Automatically poll controller status (default: enabled)
-- **Patterns**: Configure up to 20 patterns (see [Patterns](#patterns) below)
+- **Patterns**: Capture and manage up to 200 patterns (see [Patterns](#patterns) below)
+- **Spotlight Plan Lights**: Comma-delimited list of LED indices to turn on for spotlight plans (e.g., "1,2,3,4,8,9,10,11")
+- **Max LEDs**: Maximum number of LEDs in this zone (default: 156)
 - **Debug Logging**: Enable detailed logging for troubleshooting
 - **Command Timeout**: HTTP request timeout (default: 10 seconds)
 
@@ -105,6 +110,21 @@ Capture and save patterns created/edited in the Oelo app:
 4. **Pattern Saved**: The pattern is automatically saved with a stable ID (generated from pattern type and parameters) and an initial display name
 5. **Use Saved Pattern**: Select the captured pattern from **Pattern Selection** dropdown and use `setPattern()` command
 
+**Pattern Types:**
+
+The driver supports two types of patterns:
+
+- **Spotlight Plans**: Patterns with specific LEDs turned on and all others off
+  - Automatically detected when `patternType=spotlight`
+  - Can be customized via **Spotlight Plan Lights** setting to control which LEDs are active
+  - Uses colors from the original captured pattern for the specified LEDs
+  - Displayed with `[spotlight]` suffix in pattern lists
+
+- **Non-Spotlight Plans**: All other pattern types (march, stationary, river, chase, twinkle, split, fade, sprinkle, takeover, streak, bolt, custom, etc.)
+  - Standard pattern types with various effects
+  - Displayed with `[non-spotlight]` suffix in pattern lists
+  - Existing behavior unchanged
+
 **Pattern Identification:**
 - **Pattern ID**: Stable identifier generated from pattern type and key parameters (e.g., "spotlight" or "spotlight_156colors")
   - Same parameters always generate the same ID
@@ -113,13 +133,36 @@ Capture and save patterns created/edited in the Oelo app:
 - **Pattern Name**: Display name shown in dropdowns (initially same as ID, but editable)
   - Can be renamed via **Select Pattern to Rename** and **New Pattern Name** preferences
   - Renaming doesn't affect the pattern ID or prevent duplicates
+- **Plan Type**: Automatically detected and stored (spotlight or non-spotlight)
+  - Shown in pattern lists and dropdowns for easy identification
+  - Existing patterns without plan type are automatically evaluated when first used
 
 **Pattern Management:**
-- Up to 20 patterns can be stored per device
+- Up to **200 patterns** can be stored per device
 - **Duplicate Prevention**: If a pattern with the same ID already exists, it will be updated with new parameters (keeps your custom name if you renamed it)
 - **Rename Patterns**: Use **Select Pattern to Rename** dropdown and **New Pattern Name** text field in device preferences, then save
 - **Delete Patterns**: Use the **Delete Pattern** dropdown in device preferences, then save
 - Patterns appear in **Pattern Selection** dropdown for easy selection
+- Pattern type is displayed alongside pattern name (e.g., "My Pattern [spotlight]")
+
+**Spotlight Plan Customization:**
+
+For spotlight plans, you can customize which LEDs are active:
+
+1. **Capture Spotlight Plan**: Use `getPattern()` to capture a spotlight pattern from the controller
+2. **Configure Spotlight Plan Lights**: In device preferences, set **Spotlight Plan Lights** to a comma-delimited list of LED indices (1-based, e.g., "1,2,3,4,8,9,10,11")
+   - The setting is automatically normalized (duplicates removed, sorted, invalid indices skipped)
+   - Current normalized value is displayed in the preference description
+   - Default value includes common spotlight LED positions
+3. **Automatic Modification**: When you use a spotlight plan, only the LEDs specified in **Spotlight Plan Lights** will be turned on, using the colors from the original captured pattern
+4. **Setting Changes**: If you change **Spotlight Plan Lights**, all saved spotlight plans are automatically updated to use the new LED list
+
+**Pattern Validation:**
+
+All captured patterns are validated before being saved:
+- Colors string validation (correct number of RGB triplets, valid RGB values)
+- Complete pattern URL validation (all required parameters present, valid ranges)
+- Full string logged if validation fails for debugging
 
 **Note**: The Oelo app is the primary tool for creating and editing patterns. Hubitat captures these patterns so they can be reused in automations and scenes. The pattern ID ensures that patterns with identical parameters are treated as the same pattern, even if you rename them.
 
@@ -180,6 +223,7 @@ The driver exposes the following attributes:
 - `lastCommand`: Last command URL sent
 - `currentPattern`: Current pattern string from controller (e.g., "march", "off", "custom")
 - `effectName`: Current pattern name if it matches a saved pattern (empty if not found or off)
+- `availablePatterns`: Comma-separated list of all saved patterns with their plan types
 - `verificationStatus`: Command verification status (if enabled)
 - `driverVersion`: Current driver version
 - `switch`: Current switch state ("on" or "off")
@@ -209,7 +253,6 @@ See [PROTOCOL_SUMMARY.md](./PROTOCOL_SUMMARY.md) for detailed protocol documenta
 - [PROTOCOL_SUMMARY.md](./PROTOCOL_SUMMARY.md) - Protocol details
 - [VALIDATION.md](./VALIDATION.md) - Driver validation guidelines
 - [PUBLISHING.md](./PUBLISHING.md) - Publishing information
-- [DRIVER_PLAN.md](./DRIVER_PLAN.md) - Implementation plan
 
 ## License
 
@@ -229,4 +272,15 @@ For issues, questions, or contributions:
 
 ## Version History
 
-See [packageManifest.json](./packageManifest.json) for version history and release notes.
+### Version 0.8.1 (Current)
+- Increased pattern capacity from 20 to 200 patterns
+- Added support for spotlight plans and non-spotlight plans with automatic type detection
+- Added Spotlight Plan Lights setting to customize which LEDs are active in spotlight patterns
+- Added pattern validation (colors string and complete URL validation)
+- Added no-op detection for non-spotlight plans
+- Pattern type displayed in pattern lists and dropdowns
+- Improved pattern management with lazy plan type evaluation for backward compatibility
+- Full validation error logging for debugging
+
+### Previous Versions
+See [packageManifest.json](./packageManifest.json) for complete version history and release notes.
