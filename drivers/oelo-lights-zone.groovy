@@ -109,7 +109,7 @@
  * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
- * @version 0.7.5
+ * @version 0.7.6
  */
 
 // Pattern Definitions - Must be defined before metadata block
@@ -196,10 +196,12 @@ metadata {
         attribute "verificationStatus", "string"
         attribute "driverVersion", "string"
         attribute "switch", "string"
+        attribute "availablePatterns", "string"
         
         // Custom commands
         command "setPattern"
         command "getPattern"
+        command "savePatternString"
         command "on"
         command "off"
     }
@@ -225,6 +227,8 @@ metadata {
             input name: "deletePattern", type: "enum", title: "Delete Pattern", 
                 options: getPatternOptions(), 
                 required: false, description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
+            input name: "savePatternString", type: "text", title: "Save Pattern String", 
+                required: false, description: "Paste the complete pattern URL string here. If it's longer than ~166 chars, paste it in chunks - the driver will automatically combine them."
         }
         
         section("Polling") {
@@ -258,6 +262,21 @@ def installed() {
 def updated() {
     log.warn "updated() preference action called"
     log.info "Oelo Lights Zone driver updated"
+    log.warn "=== UPDATED() FUNCTION STARTED ==="
+    debugLog "updated() called - checking all preferences"
+    
+    // Log all preference values for debugging
+    log.warn "=== PREFERENCE VALUES DEBUG ==="
+    log.warn "settings.savePatternString exists: ${settings.savePatternString != null}"
+    log.warn "settings.savePatternString value length: ${settings.savePatternString ? settings.savePatternString.length() : 0}"
+    if (settings.savePatternString) {
+        log.warn "settings.savePatternString first 100 chars: ${settings.savePatternString.take(100)}"
+        log.warn "settings.savePatternString last 100 chars: ${settings.savePatternString.takeRight(100)}"
+    }
+    log.warn "state.patternStringPartial exists: ${state.patternStringPartial != null}"
+    log.warn "state.patternStringPartial length: ${state.patternStringPartial ? state.patternStringPartial.length() : 0}"
+    log.warn "=== END PREFERENCE VALUES DEBUG ==="
+    
     // Set driver version immediately
     setDriverVersion()
     
@@ -288,6 +307,7 @@ def updated() {
             patternToRename.name = newPatternName
             state.patterns = patterns
             log.info "Renamed pattern '${oldPatternName}' to '${newPatternName}'"
+            updateAvailablePatternsAttribute()
         }
         }
     }
@@ -319,6 +339,7 @@ def updated() {
             
             state.patterns = patterns
             log.info "Deleted pattern '${patternName}' and compacted list"
+            updateAvailablePatternsAttribute()
             
             // Clear the deletePattern setting (can't use app.updateSetting in driver, will clear on next save)
             // User will need to save preferences again to clear the selection
@@ -327,12 +348,107 @@ def updated() {
         }
     }
     
+    // Handle pattern string saving - automatically detect truncation and combine parts
+    // Hubitat preference field limit is ~166 characters, so we handle truncation automatically
+    log.warn "=== CHECKING PATTERN STRING PREFERENCE ==="
+    log.warn "Preference field exists: ${settings.savePatternString != null}"
+    log.warn "Preference field value is empty: ${settings.savePatternString == null || settings.savePatternString.trim() == ''}"
+    
+    if (settings.savePatternString && settings.savePatternString.trim() != "") {
+        def patternString = settings.savePatternString.trim()
+        log.warn "Preference action: Saving pattern from string field"
+        log.warn "Pattern string length: ${patternString.length()} characters"
+        log.warn "Pattern string starts with: ${patternString.take(50)}"
+        log.warn "Pattern string ends with: ${patternString.takeRight(50)}"
+        debugLog "Pattern string FULL VALUE: ${patternString}"
+        
+        // Check if it looks truncated:
+        // 1. Doesn't start with "patternType=" (truncated from beginning)
+        // 2. Doesn't end with "pause=0" (truncated from end)
+        // 3. Length is around 166 chars (Hubitat's limit)
+        def isTruncated = false
+        def truncationReason = ""
+        
+        if (!patternString.startsWith("patternType=")) {
+            isTruncated = true
+            truncationReason = "missing beginning (doesn't start with 'patternType=')"
+        } else if (!patternString.endsWith("pause=0") && patternString.length() < 1200) {
+            isTruncated = true
+            truncationReason = "missing end (doesn't end with 'pause=0' and length < 1200)"
+        } else if (patternString.length() >= 150 && patternString.length() < 1200) {
+            isTruncated = true
+            truncationReason = "length suggests truncation (${patternString.length()} chars, expected ~1282)"
+        }
+        
+        if (isTruncated) {
+            log.warn "WARNING: Pattern string appears truncated! Reason: ${truncationReason}"
+            log.warn "Hubitat preference field max length: ~166 characters"
+            
+            // Check if we have a previous partial string
+            if (state.patternStringPartial && state.patternStringPartial.trim() != "") {
+                log.info "Found previous partial string (${state.patternStringPartial.length()} chars)"
+                debugLog "Previous partial ends with: ...${state.patternStringPartial.takeRight(50)}"
+                debugLog "New part starts with: ${patternString.take(50)}..."
+                
+                // Combine: previous partial + new part
+                def combined = state.patternStringPartial + patternString
+                log.info "Combined length: ${combined.length()} characters"
+                debugLog "Combined string starts: ${combined.take(50)}..."
+                debugLog "Combined string ends: ...${combined.takeRight(50)}"
+                
+                // Check if now complete
+                if ((combined.startsWith("patternType=") && combined.endsWith("pause=0")) || combined.length() >= 1200) {
+                    log.info "Combined string appears complete - processing..."
+                    processPatternString(combined)
+                    state.patternStringPartial = null
+                    state.patternStringToSave = null
+                    log.info "Pattern saved successfully! Clearing partial state."
+                } else {
+                    log.warn "Combined string still incomplete (${combined.length()} chars) - storing partial"
+                    state.patternStringPartial = combined
+                    log.info "Stored combined partial (${combined.length()} chars)"
+                    log.info "INSTRUCTIONS: Paste the next chunk (~166 chars) into the same field and save again"
+                    log.info "Continue until the string ends with 'pause=0' (total should be ~1282 chars)"
+                }
+            } else {
+                // First part - store as partial
+                log.warn "Storing as partial string (first chunk)"
+                state.patternStringPartial = patternString
+                log.info "Stored partial pattern string (${patternString.length()} chars)"
+                log.info "INSTRUCTIONS: Paste the next chunk (~166 chars) into the same field and save again"
+                log.info "Continue until the string ends with 'pause=0' (total should be ~1282 chars)"
+            }
+        } else {
+            // Appears complete - process it
+            log.info "Pattern string appears complete (${patternString.length()} chars) - processing..."
+            processPatternString(patternString)
+            state.patternStringPartial = null
+            state.patternStringToSave = null
+            log.info "Pattern saved successfully!"
+        }
+    } else if (state.patternStringPartial && state.patternStringPartial.trim() != "") {
+        // No new input but we have a partial
+        log.info "Found partial pattern string in state (${state.patternStringPartial.length()} chars)"
+        log.warn "No new pattern string input - partial string not processed"
+        log.warn "To complete: paste the next chunk into 'Save Pattern String' field and save again"
+    } else if (state.patternStringToSave && state.patternStringToSave.trim() != "") {
+        // Legacy: process from state.patternStringToSave
+        log.info "Processing pattern string from state.patternStringToSave (${state.patternStringToSave.length()} chars)"
+        def patternString = state.patternStringToSave.trim()
+        processPatternString(patternString)
+        state.patternStringToSave = null
+        debugLog "Cleared state.patternStringToSave after processing"
+    } else {
+        debugLog "No pattern string found in preference field or state"
+    }
+    log.warn "=== END PATTERN STRING PREFERENCE CHECK ==="
+    
     initialize()
 }
 
 // Set driver version in state and attribute (called unconditionally)
 def setDriverVersion() {
-    def driverVersion = "0.7.5"
+    def driverVersion = "0.7.6"
     // Always update both state and attribute to ensure they match
     state.driverVersion = driverVersion
     sendEvent(name: "driverVersion", value: driverVersion)
@@ -352,6 +468,9 @@ def initialize() {
     
     // Migrate old settings-based patterns to state (one-time migration)
     migrateOldPatterns()
+    
+    // Update available patterns attribute
+    updateAvailablePatternsAttribute()
     
     if (!controllerIP) {
         log.error "Controller IP address not configured"
@@ -496,17 +615,21 @@ def setEffect(String effectName) {
     }
 }
 
-// Custom command: Set pattern from dropdown selection (Preferences)
-def setPattern() {
-    log.warn "setPattern() command called"
-    def patternName = settings.selectedPattern
-    if (!patternName || patternName == "") {
-        log.warn "No pattern selected. Please select a pattern from Preferences → Pattern Selection section first."
+// Custom command: Set pattern (supports both parameterized and preference-based)
+def setPattern(String patternName = null) {
+    log.warn "setPattern() command called${patternName ? " with pattern: ${patternName}" : ""}"
+    
+    // If patternName parameter provided, use it; otherwise use preference selection
+    def selectedPattern = patternName ?: settings.selectedPattern
+    
+    if (!selectedPattern || selectedPattern == "") {
+        log.warn "No pattern specified. Please provide a pattern name as parameter or select a pattern from Preferences → Pattern Selection section first."
+        log.warn "Available patterns: ${buildEffectList()}"
         return
     }
     
-    log.info "Setting pattern from Preferences dropdown: ${patternName}"
-    setEffect(patternName)
+    log.info "Setting pattern: ${selectedPattern}"
+    setEffect(selectedPattern)
 }
 
 // Custom command: Get current pattern from controller and store it
@@ -628,6 +751,7 @@ def getPattern() {
             def existingName = patterns[existingIndex].name
             patterns[existingIndex].urlParams = urlParams
             state.patterns = patterns
+            updateAvailablePatternsAttribute()
             log.info "[SUCCESS] Step 9: Updated existing pattern '${existingName}' (ID: ${patternId}) with new parameters"
             debugLog "Updated pattern: ${patterns[existingIndex]}"
             debugLog "=== GET PATTERN COMMAND COMPLETED SUCCESSFULLY ==="
@@ -641,8 +765,8 @@ def getPattern() {
                 log.error "[FAILED] Step 9: No empty slots available (maximum 20 patterns)"
                 debugLog "Current patterns count: ${patterns.size()}"
                 debugLog "=== GET PATTERN COMMAND FAILED ==="
-                return
-            }
+        return
+    }
             debugLog "[SUCCESS] Step 9: Found empty slot ${nextSlot}"
             
             debugLog "[Step 10] Storing new pattern in slot ${nextSlot}..."
@@ -671,6 +795,180 @@ def getPattern() {
     }
 }
 
+// Custom command: Save pattern from URL parameter string
+// Can be called with parameter via Rule Machine, or will use state.patternStringToSave or settings if no parameter
+def savePatternString(String patternString = null) {
+    log.warn "savePatternString() command called"
+    log.info "=== SAVE PATTERN STRING COMMAND STARTED ==="
+    log.warn "=== CHECKING FOR PATTERN STRING ==="
+    
+    // If no parameter provided, check multiple sources for the string
+    if (!patternString || patternString.trim() == "") {
+        debugLog "No parameter provided, checking state and settings..."
+        
+        // First check state (stored from preference save attempt)
+        debugLog "Checking state.patternStringToSave..."
+        debugLog "state.patternStringToSave exists: ${state.patternStringToSave != null}"
+        debugLog "state.patternStringToSave value: ${state.patternStringToSave}"
+        debugLog "state.patternStringToSave length: ${state.patternStringToSave ? state.patternStringToSave.length() : 0}"
+        patternString = state.patternStringToSave
+        
+        // If not in state, check settings (sometimes available even if save "failed")
+        if (!patternString || patternString.trim() == "") {
+            debugLog "state.patternStringToSave is empty, checking settings.savePatternString..."
+            debugLog "settings.savePatternString exists: ${settings.savePatternString != null}"
+            debugLog "settings.savePatternString value: ${settings.savePatternString}"
+            debugLog "settings.savePatternString length: ${settings.savePatternString ? settings.savePatternString.length() : 0}"
+            
+            patternString = settings.savePatternString
+            if (patternString && patternString.trim() != "") {
+                log.info "Found pattern string in settings (preference field)"
+                debugLog "Found pattern string in settings, storing in state..."
+                // Store it in state for future use
+                state.patternStringToSave = patternString.trim()
+                debugLog "Stored in state.patternStringToSave, length: ${state.patternStringToSave.length()}"
+            } else {
+                debugLog "settings.savePatternString is also empty or null"
+            }
+        } else {
+            log.info "Using pattern string from state.patternStringToSave"
+            debugLog "Using pattern string from state, length: ${patternString.length()}"
+        }
+        
+        // Still empty? Show error
+        if (!patternString || patternString.trim() == "") {
+            log.error "Pattern string is empty."
+            log.error "Checked state.patternStringToSave: ${state.patternStringToSave != null ? 'exists but empty' : 'null'}"
+            log.error "Checked settings.savePatternString: ${settings.savePatternString != null ? 'exists but empty' : 'null'}"
+            log.error "To use this command:"
+            log.error "1. Paste your pattern string into the 'Save Pattern String' preference field"
+            log.error "2. Click 'Save Preferences' (even if it says it failed)"
+            log.error "3. Immediately run this command - it will try to read from the preference field"
+            log.error "Alternative: Use Rule Machine to set device state 'patternStringToSave' to your pattern string, then run this command"
+            return
+        }
+        
+        // Clear state after use (but keep settings in case user wants to try again)
+        state.patternStringToSave = null
+        debugLog "Cleared state.patternStringToSave after reading"
+    } else {
+        debugLog "Parameter provided, using parameter (length: ${patternString.length()})"
+    }
+    
+    // Process the pattern string
+    log.info "Processing pattern string (length: ${patternString.length()})..."
+    processPatternString(patternString)
+}
+
+// Shared function to process pattern string (used by both preference handler and command)
+def processPatternString(String patternString) {
+    log.warn "processPatternString() called with string length: ${patternString?.length() ?: 0} characters"
+    try {
+        if (!patternString || patternString.trim() == "") {
+            log.error "processPatternString: Pattern string is empty or null"
+            return
+        }
+        
+        log.info "Pattern string length: ${patternString.length()} characters"
+        log.warn "Pattern string starts with: ${patternString.take(50)}"
+        log.warn "Pattern string ends with: ${patternString.takeRight(50)}"
+        
+        // Use the same parsing logic as the preference handler
+        def paramsString = patternString.trim()
+        if (paramsString.contains("setPattern?")) {
+            paramsString = paramsString.substring(paramsString.indexOf("setPattern?") + "setPattern?".length())
+        }
+        if (paramsString.contains("?")) {
+            paramsString = paramsString.substring(paramsString.indexOf("?") + 1)
+        }
+        
+        debugLog "Parsed params string length: ${paramsString.length()} characters"
+        
+        // Parse URL parameters into a map
+        def urlParams = [:]
+        def paramPairs = paramsString.split("&")
+        paramPairs.each { pair ->
+            def parts = pair.split("=", 2)
+            if (parts.size() == 2) {
+                def key = java.net.URLDecoder.decode(parts[0], "UTF-8")
+                def value = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                urlParams[key] = value
+            }
+        }
+        
+        debugLog "Parsed ${urlParams.size()} parameters"
+        
+        // Extract pattern type
+        def patternType = urlParams.patternType ?: urlParams.pattern ?: "off"
+        if (patternType == "off") {
+            log.error "Cannot save pattern: Pattern type is 'off'"
+            return
+        }
+        
+        // Generate stable pattern ID from parameters
+        def patternId = patternType.toString()
+        def suffixParts = []
+        if (urlParams.direction && urlParams.direction != "0" && urlParams.direction != "F") {
+            suffixParts.add("dir${urlParams.direction}")
+        }
+        if (urlParams.speed && urlParams.speed != "0") {
+            suffixParts.add("spd${urlParams.speed}")
+        }
+        if (urlParams.num_colors && urlParams.num_colors != "1") {
+            suffixParts.add("${urlParams.num_colors}colors")
+        }
+        
+        if (suffixParts.isEmpty()) {
+            patternId = patternType.toString()
+        } else {
+            patternId = "${patternType}_${suffixParts.join('_')}"
+        }
+        
+        def patternName = patternId
+        def patterns = state.patterns ?: []
+        
+        // Check if pattern with same ID already exists
+        def existingIndex = patterns.findIndexOf { it && it.id == patternId }
+        
+        if (existingIndex >= 0) {
+            def existingName = patterns[existingIndex].name ?: patternId
+            patterns[existingIndex] = [
+                id: patternId,
+                name: existingName,
+                urlParams: urlParams
+            ]
+            state.patterns = patterns
+            updateAvailablePatternsAttribute()
+            log.info "Updated existing pattern '${existingName}' (ID: ${patternId}) from string"
+        } else {
+            def nextSlot = findNextEmptyPatternSlot(patterns)
+            if (nextSlot == -1) {
+                log.error "Cannot save pattern: No empty slots available (maximum 20 patterns)"
+                return
+            }
+            
+            if (patterns.size() < nextSlot) {
+                while (patterns.size() < nextSlot) {
+                    patterns.add(null)
+                }
+            }
+            patterns[nextSlot - 1] = [
+                id: patternId,
+                name: patternName,
+                urlParams: urlParams
+            ]
+            state.patterns = patterns
+            updateAvailablePatternsAttribute()
+            log.info "Saved new pattern '${patternName}' (ID: ${patternId}) from string in slot ${nextSlot}"
+        }
+        
+        log.info "=== SAVE PATTERN STRING COMMAND COMPLETED SUCCESSFULLY ==="
+    } catch (Exception e) {
+        def errorMsg = e.message ?: e.toString()
+        log.error "Error saving pattern from string: ${errorMsg}"
+        debugLog "Exception: ${e.toString()}"
+    }
+}
 
 // Build pattern URL parameters from zone data returned by getController
 def buildPatternParamsFromZoneData(Map zoneData) {
@@ -681,15 +979,40 @@ def buildPatternParamsFromZoneData(Map zoneData) {
     
     if (pattern == "off") {
         debugLog "buildPatternParamsFromZoneData: Pattern is 'off', returning null"
-        return null
-    }
-    
+    return null
+}
+
     // Extract parameters from zone data
-    def numColors = zoneData.numberOfColors ?: 1
     def colorStr = zoneData.colorStr ?: ""
+    
+    // Log the raw colorStr to see what we're receiving
+    debugLog "buildPatternParamsFromZoneData: Raw colorStr length=${colorStr.length()}"
+    debugLog "buildPatternParamsFromZoneData: Full colorStr: ${colorStr}"
+    
+    // Count expected parts (should be ledCnt * 3 for RGB values)
+    def expectedParts = zoneData.ledCnt ? (zoneData.ledCnt * 3) : 0
+    def actualParts = colorStr ? colorStr.split("&").size() : 0
+    debugLog "buildPatternParamsFromZoneData: Expected ${expectedParts} color parts (${zoneData.ledCnt} LEDs × 3), actual parts in colorStr: ${actualParts}"
+    
     def parsedColors = colorStr ? parseColorStr(colorStr) : "255,255,255"
     
-    debugLog "buildPatternParamsFromZoneData: numberOfColors=${numColors}, colorStr length=${colorStr.length()}, parsedColors=${parsedColors}"
+    // Count how many RGB triplets were parsed (this is the actual number of LEDs with color data)
+    def parsedColorCount = parsedColors.split(",").size() / 3
+    
+    // num_colors should match the number of RGB triplets in the colors parameter
+    // Use parsedColorCount to ensure we send the correct number
+    // Fall back to ledCnt or numberOfColors if parsing failed
+    def numColors = parsedColorCount > 0 ? parsedColorCount : (zoneData.ledCnt ?: zoneData.numberOfColors ?: 1)
+    
+    debugLog "buildPatternParamsFromZoneData: ledCnt=${zoneData.ledCnt}, numberOfColors=${zoneData.numberOfColors}"
+    debugLog "buildPatternParamsFromZoneData: parsed ${parsedColorCount} RGB triplets"
+    debugLog "buildPatternParamsFromZoneData: using num_colors=${numColors} (should match number of RGB triplets)"
+    
+    // Verify we have enough colors for all LEDs
+    if (zoneData.ledCnt && parsedColorCount < zoneData.ledCnt) {
+        log.warn "buildPatternParamsFromZoneData: Warning - parsed ${parsedColorCount} RGB triplets but ledCnt=${zoneData.ledCnt}. Some LED data may be missing."
+        log.warn "buildPatternParamsFromZoneData: Expected ${expectedParts} parts in colorStr, got ${actualParts} parts"
+    }
     
     def params = [
         patternType: pattern,
@@ -711,18 +1034,35 @@ def buildPatternParamsFromZoneData(Map zoneData) {
 // Generate stable pattern ID from URL parameters (used to identify unique patterns)
 
 // Parse colorStr format (e.g., "255&242&194&255&242&194...") to comma-separated RGB
+// colorStr contains RGB values for ALL LEDs separated by &
+// Format: "R&G&B&R&G&B&..." where each R,G,B triplet represents one LED
 def parseColorStr(String colorStr) {
-    if (!colorStr || colorStr.trim() == "") return "255,255,255"
+    if (!colorStr || colorStr.trim() == "") {
+        debugLog "parseColorStr: Empty colorStr, returning default white"
+        return "255,255,255"
+    }
     
     // colorStr format: "R&G&B&R&G&B&..."
     def parts = colorStr.split("&")
+    def totalParts = parts.size()
+    def expectedTriplets = totalParts / 3
+    debugLog "parseColorStr: Input has ${totalParts} parts, expecting ${expectedTriplets} RGB triplets"
+    
     def colors = []
     for (int i = 0; i < parts.size(); i += 3) {
         if (i + 2 < parts.size()) {
             colors.add("${parts[i]},${parts[i+1]},${parts[i+2]}")
+        } else {
+            // Handle incomplete triplet at the end
+            debugLog "parseColorStr: Warning - incomplete RGB triplet at position ${i}, skipping"
         }
     }
-    return colors.join(",")
+    
+    def result = colors.join(",")
+    debugLog "parseColorStr: Parsed ${colors.size()} RGB triplets (${colors.size() * 3} color values total)"
+    debugLog "parseColorStr: Result length: ${result.length()} characters"
+    
+    return result
 }
 
 // Find next empty slot in custom patterns list
@@ -754,15 +1094,15 @@ def migrateOldPatterns() {
                 name: name.trim(),
                 urlParams: [
                     patternType: name.trim(),
-                    zones: zoneNumber,
-                    num_zones: 1,
-                    num_colors: 1,
+        zones: zoneNumber,
+        num_zones: 1,
+        num_colors: 1,
                     colors: "255,255,255",
-                    direction: "F",
-                    speed: 0,
-                    gap: 0,
-                    other: 0,
-                    pause: 0
+        direction: "F",
+        speed: 0,
+        gap: 0,
+        other: 0,
+        pause: 0
                 ]
             ])
             migrated = true
@@ -771,6 +1111,7 @@ def migrateOldPatterns() {
     
     if (migrated) {
         state.patterns = patterns
+        updateAvailablePatternsAttribute()
         log.info "Migrated ${patterns.size()} patterns from settings to state"
     }
 }
@@ -822,6 +1163,44 @@ def getPatternOptions() {
     }
     
     return options
+}
+
+// Build pattern options for command parameters (no empty option)
+def getPatternOptionsForCommand() {
+    def options = [:]
+    
+    // Patterns from state (stored patterns)
+    def patterns = []
+    try {
+        def storedPatterns = state.patterns ?: []
+        storedPatterns.each { pattern ->
+            if (pattern && pattern.name) {
+                patterns.add(pattern.name)
+            }
+        }
+    } catch (Exception e) {
+        // state not available during metadata parsing - that's OK
+    }
+    
+    // Add patterns (sorted) - no empty option for commands
+    patterns.sort().each { pattern ->
+        options[pattern] = pattern
+    }
+    
+    return options
+}
+
+// Update availablePatterns attribute with current pattern list
+def updateAvailablePatternsAttribute() {
+    def patterns = state.patterns ?: []
+    def patternNames = []
+    patterns.each { pattern ->
+        if (pattern && pattern.name) {
+            patternNames.add(pattern.name)
+        }
+    }
+    def patternsList = patternNames.sort().join(", ")
+    sendEvent(name: "availablePatterns", value: patternsList ?: "No patterns available")
 }
 
 // Get pattern URL - handles patterns from state
@@ -962,45 +1341,45 @@ def getCurrentZoneStateForVerification(String commandUrl, int attempt, int maxRe
             return
         }
         
-        def currentState = [
-            pattern: zoneData.pattern ?: "off",
-            isOff: (zoneData.pattern == "off")
-        ]
-        
-        // Get expected state from stored state
-        def expectedState = state.verificationExpectedState
-        if (!expectedState) {
-            // Try to parse from command URL
-            expectedState = parseCommandExpectation(commandUrl)
-        }
-        
-        if (matchesExpectedState(currentState, expectedState)) {
-            logDebug "Command verified successfully on attempt ${attempt}"
-            sendEvent(name: "verificationStatus", value: "verified")
-            updateStateFromVerification(currentState)
-            // Clear verification state
-            state.verificationCommandUrl = null
-            state.verificationExpectedState = null
-        } else {
-            logDebug "Verification attempt ${attempt}/${maxRetries} failed. Expected: ${expectedState}, Got: ${currentState}"
-            
-            // Schedule next attempt if not exceeded max retries
-            if (attempt < maxRetries) {
-                def nextAttempt = attempt + 1
-                logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
-                runIn(delaySeconds, "verifyCommandState", [data: [
-                    commandUrl: commandUrl,
-                    attempt: nextAttempt,
-                    startTime: startTime
-                ]])
-            } else {
-                log.warn "Command verification failed after ${maxRetries} attempts"
-                sendEvent(name: "verificationStatus", value: "failed")
-                // Clear verification state
-                state.verificationCommandUrl = null
-                state.verificationExpectedState = null
-            }
-        }
+                        def currentState = [
+                            pattern: zoneData.pattern ?: "off",
+                            isOff: (zoneData.pattern == "off")
+                        ]
+                        
+                        // Get expected state from stored state
+                        def expectedState = state.verificationExpectedState
+                        if (!expectedState) {
+                            // Try to parse from command URL
+                            expectedState = parseCommandExpectation(commandUrl)
+                        }
+                        
+                        if (matchesExpectedState(currentState, expectedState)) {
+                            logDebug "Command verified successfully on attempt ${attempt}"
+                            sendEvent(name: "verificationStatus", value: "verified")
+                            updateStateFromVerification(currentState)
+                            // Clear verification state
+                            state.verificationCommandUrl = null
+                            state.verificationExpectedState = null
+                        } else {
+                            logDebug "Verification attempt ${attempt}/${maxRetries} failed. Expected: ${expectedState}, Got: ${currentState}"
+                            
+                            // Schedule next attempt if not exceeded max retries
+                            if (attempt < maxRetries) {
+                                def nextAttempt = attempt + 1
+                                logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
+                                runIn(delaySeconds, "verifyCommandState", [data: [
+                                    commandUrl: commandUrl,
+                                    attempt: nextAttempt,
+                                    startTime: startTime
+                                ]])
+                            } else {
+                                log.warn "Command verification failed after ${maxRetries} attempts"
+                                sendEvent(name: "verificationStatus", value: "failed")
+                                // Clear verification state
+                                state.verificationCommandUrl = null
+                                state.verificationExpectedState = null
+                            }
+                        }
     }
 }
 
@@ -1228,13 +1607,13 @@ def fetchZoneData(Closure callback) {
                                 debugLog "Zone patternType field: '${zoneData.patternType}'"
                                 debugLog "Zone isOn field: ${zoneData.isOn}"
                                 debugLog "=== END RESPONSE DEBUG ==="
-                            } else {
+                } else {
                                 debugLog "Zone ${zoneNumber} not found in parsed response"
                                 debugLog "=== END RESPONSE DEBUG ==="
-                            }
+                }
                             
                             if (callback) callback(zoneData)
-                        } else {
+            } else {
                             log.error "Parsed JSON string but result is not a List: ${zones}"
                             debugLog "=== END RESPONSE DEBUG ==="
                             if (callback) callback(null)
@@ -1266,8 +1645,8 @@ def fetchZoneData(Closure callback) {
                             if (callback) callback(null)
                         }
                         return
-                    }
-                } catch (Exception e) {
+        }
+    } catch (Exception e) {
                     // If .text access fails, it's not an InputStream, continue to error logging
                     logDebug "Not an InputStream (or .text access failed): ${e.message}"
                 }
@@ -1392,12 +1771,19 @@ def updateZoneState(Map zoneData) {
     
     // Extract pattern - handle different possible field names
     def pattern = zoneData.pattern ?: zoneData.patternType ?: "off"
-    // Use isOn field from controller if available, otherwise infer from pattern
-    def isOn = zoneData.isOn != null ? zoneData.isOn : (pattern != "off" && pattern != null && pattern.toString().trim() != "")
+    // If pattern is 'off', force isOn to false regardless of controller's isOn field
+    // Otherwise, use isOn field from controller if available, or infer from pattern
+    def isOn = false
+    if (pattern == "off" || pattern == null || pattern.toString().trim() == "") {
+        isOn = false
+    } else {
+        isOn = zoneData.isOn != null ? zoneData.isOn : true
+    }
     
     debugLog "Extracted pattern: '${pattern}'"
+    debugLog "zoneData.isOn field: ${zoneData.isOn}"
     debugLog "Calculated isOn: ${isOn}"
-    debugLog "Pattern comparison: pattern='${pattern}', pattern != 'off' = ${pattern != 'off'}, pattern != null = ${pattern != null}, pattern.trim() != '' = ${pattern?.toString()?.trim() != ''}"
+    debugLog "Pattern comparison: pattern='${pattern}', pattern == 'off' = ${pattern == 'off'}, pattern != null = ${pattern != null}, pattern.trim() != '' = ${pattern?.toString()?.trim() != ''}"
     
     logDebug "Updating zone state - pattern: '${pattern}', isOn: ${isOn}"
     
@@ -1510,5 +1896,6 @@ def debugLog(String msg) {
         log.debug msg
     }
 }
+
 
 

@@ -2,7 +2,7 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-  "version": "0.7.5",
+  "version": "0.7.6",
 	"dateReleased": "2024-12-19",
 	"releaseNotes": "Oelo Lights Zone Driver v0.7.0\n- Reordered preferences: Standard Pattern Selection first, Custom Pattern Selection second, Custom Patterns configuration third\n- Increased custom patterns from 6 to 20\n- Updated all code to support 20 custom patterns\n- Improved preferences organization for better user experience",
 	"drivers": [
