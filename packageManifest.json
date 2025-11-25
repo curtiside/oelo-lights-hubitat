@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.9.4",
+	"version": "1.0.0",
 	"dateReleased": "2024-12-20",
-	"releaseNotes": "Version 0.9.4 Changes:\n- Auto-discovery: Controller IP address automatically updated when discovered via scan\n- UI improvements: Dropdowns auto-refresh on selection, fields clear after operations\n- Bug fixes: Fixed rename/delete conflicts and null settings handling",
+	"releaseNotes": "Version 1.0.0 - First Official Release:\n- Complete Hubitat integration for Oelo Lights controllers\n- Multi-zone support (up to 6 zones)\n- Pattern capture and management (up to 200 patterns)\n- Automatic controller discovery with IP auto-configuration\n- Spotlight plan customization\n- Pattern validation and verification\n- Auto-polling and command verification\n- Full pattern rename/delete functionality\n- Stable pattern IDs with RGB color identification",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
