@@ -358,6 +358,13 @@ def updated() {
                 
                 // Track the renamed pattern to prevent deletion in same update cycle
                 renamedPatternName = newPatternName
+                
+                // Clear the newPatternName field after successful rename
+                try {
+                    device.updateSetting("newPatternName", [value: "", type: "text"])
+                } catch (Exception e) {
+                    debugLog "Could not clear newPatternName field: ${e.message}"
+                }
             }
         }
         
