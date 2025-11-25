@@ -254,7 +254,7 @@ metadata {
                 options: getPatternOptions(), 
                 required: false, defaultValue: "", submitOnChange: true,
                 description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
-            if (settings.renamePattern && settings.renamePattern != "") {
+            if (settings && settings.renamePattern && settings.renamePattern != "") {
                 input name: "newPatternName", type: "text", title: "New Pattern Name", 
                     required: false, defaultValue: "", submitOnChange: true,
                     description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
@@ -909,8 +909,19 @@ def scanNextIP() {
                 sendEvent(name: "discoveredControllerIP", value: ip)
                 log.info "=== CONTROLLER DISCOVERED ==="
                 log.info "IP Address: ${ip}"
-                log.info "Please copy this IP address and paste it into the 'Controller IP Address' preference field for this device, then save."
-                log.info "Note: Each device instance has its own settings. Make sure you're updating the correct device."
+                
+                // Automatically update the controllerIP preference
+                try {
+                    device.updateSetting("controllerIP", [value: ip, type: "text"])
+                    log.info "Controller IP address automatically updated to: ${ip}"
+                    log.info "Device will be re-initialized with the new IP address."
+                    
+                    // Re-initialize the device to use the new IP address
+                    runIn(1, "initialize")
+                } catch (Exception e) {
+                    log.warn "Could not automatically update Controller IP address: ${e.message}"
+                    log.info "Please manually copy this IP address and paste it into the 'Controller IP Address' preference field for this device, then save."
+                }
                 
                 state.discoveryFound = true
                 state.discoverySubnets = null
@@ -2891,14 +2902,14 @@ def hsvToRgb(int h, int s, int v) {
 // Logging
 
 def logDebug(String msg) {
-    if (settings.logEnable) {
+    if (settings && settings.logEnable) {
         debugLog "[Zone ${zoneNumber}] ${msg}"
     }
 }
 
 // Simple debug logging wrapper that checks logEnable preference
 def debugLog(String msg) {
-    if (settings.logEnable) {
+    if (settings && settings.logEnable) {
         log.debug msg
     }
 }
