@@ -208,7 +208,7 @@
  */
 
 // Constants
-final String DRIVER_VERSION = "0.9.3"  // Driver version
+final String DRIVER_VERSION = "0.9.4"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 

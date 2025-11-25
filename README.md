@@ -40,7 +40,7 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 1. **Controller IP Address** (Required)
    - IP address of the Oelo controller on your local network
    - Format: IPv4 address (e.g., `192.168.1.100`)
-   - Can be discovered via `scanForController()` command or manually entered
+   - Automatically set when discovered via `scanForController()` command, or can be manually entered
    - Driver validates IP by attempting to connect to `/getController` endpoint
    - See [Finding Controller IP](#finding-controller-ip) below
 
@@ -128,13 +128,13 @@ The driver includes a network scanning feature to discover Oelo controllers:
    - Open device preferences
    - Click the **Scan for Controller** button
    - The driver will scan your network subnet
-   - When found, the discovered IP address will be:
+   - When found, the controller IP address is **automatically set** in the preferences
+   - The discovered IP address will be:
      - **Logged in the device logs**: `=== CONTROLLER DISCOVERED ===` followed by `IP Address: x.x.x.x`
      - Shown in the **Controller IP Address** preference description: `(Discovered: x.x.x.x)`
-   - **Check the device logs** to see the discovered IP address
-   - **Manually copy** the discovered IP address into the **Controller IP Address** field
-   - Click **Save Preferences** to save the discovered IP
-   - **Important:** Each device instance has separate settings. Make sure you're updating the correct device.
+     - **Automatically entered** into the Controller IP Address field
+   - The device will work immediately with the discovered IP address
+   - **Note:** Refresh the preferences page to see the updated IP address in the field (the device works immediately even before refresh)
 
 2. **Subnet Configuration:**
    - The **Subnet to Scan** field shows your Hubitat hub's subnet in the description if empty
@@ -149,8 +149,8 @@ The driver includes a network scanning feature to discover Oelo controllers:
 - Tests each IP with HTTP GET to `/getController`
 - Identifies Oelo controllers by checking for valid JSON response
 - Logs progress every 10 IP addresses scanned
-- When controller is found, IP address is logged and shown in preference description
-- **You must manually enter the discovered IP** into the Controller IP Address field
+- When controller is found, IP address is automatically set in preferences
+- Device is automatically initialized with the discovered IP address
 
 **Limitations:**
 - Scanning can be slow (tests each IP sequentially)
@@ -217,15 +217,11 @@ The driver validates the IP address by:
 
 #### Initial Setup
 
-1. **Find Controller IP**
-   - Use `scanForController()` command or one of the manual methods above
-   - Note the IP address (e.g., `192.168.1.100`)
-
-2. **Create Virtual Device**
+1. **Create Virtual Device**
    - Hubitat → Devices → Add Virtual Device
    - Select "Oelo Lights Zone" driver
    - Configure device:
-     - Enter Controller IP Address
+     - Use `scanForController()` command to automatically discover and set Controller IP Address, or manually enter IP address
      - Set Zone Number (1-6)
      - Configure optional settings as needed
 
@@ -250,7 +246,7 @@ The driver validates the IP address by:
 
 | Configuration Item | Required | Default | Notes |
 |-------------------|----------|---------|-------|
-| Controller IP Address | ✅ Yes | None | Can be discovered or manually entered |
+| Controller IP Address | ✅ Yes | None | Automatically set by scan command, or manually entered |
 | Zone Number | ✅ Yes | 1 | Range: 1-6 |
 | Subnet to Scan | ❌ No | Empty | Shows hub subnet in description if empty |
 | Poll Interval | ❌ No | 300 sec | Range: 10-3600 sec |
@@ -318,23 +314,23 @@ The driver supports two types of patterns:
   - Automatically detected when `patternType=spotlight`
   - Can be customized via **Spotlight Plan Lights** setting to control which LEDs are active
   - Uses colors from the original captured pattern for the specified LEDs
-  - Displayed with `[spotlight]` suffix in pattern lists
 
 - **Non-Spotlight Plans**: All other pattern types (march, stationary, river, chase, twinkle, split, fade, sprinkle, takeover, streak, bolt, custom, etc.)
   - Standard pattern types with various effects
-  - Displayed with `[non-spotlight]` suffix in pattern lists
   - Existing behavior unchanged
 
 **Pattern Identification:**
-- **Pattern ID**: Stable identifier generated from pattern type and key parameters (e.g., "spotlight" or "spotlight_156colors")
+- **Pattern ID**: Stable identifier generated from pattern type, key parameters, and first non-zero RGB color values (e.g., "march_dirR_spd3_6colors_rgb255-92-0")
   - Same parameters always generate the same ID
+  - Includes pattern type, direction, speed, number of colors, and RGB color values
   - Prevents duplicate patterns automatically
   - Cannot be changed (stays stable even if pattern is renamed)
+  - Displayed in parentheses next to pattern name in dropdowns (e.g., "My Pattern (march_dirR_spd3_6colors_rgb255-92-0)")
 - **Pattern Name**: Display name shown in dropdowns (initially same as ID, but editable)
   - Can be renamed via **Select Pattern to Rename** and **New Pattern Name** preferences
   - Renaming doesn't affect the pattern ID
 - **Plan Type**: Automatically detected and stored (spotlight or non-spotlight)
-  - Shown in pattern lists and dropdowns for easy identification
+  - Used internally for pattern processing
 
 **Pattern Management:**
 - Up to **200 patterns** can be stored per device
@@ -342,7 +338,7 @@ The driver supports two types of patterns:
 - **Rename Patterns**: Use **Select Pattern to Rename** dropdown and **New Pattern Name** text field in device preferences, then save
 - **Delete Patterns**: Use the **Delete Pattern** dropdown in device preferences, then save
 - Patterns appear in **Pattern Selection** dropdown for easy selection
-- Pattern type is displayed alongside pattern name (e.g., "My Pattern [spotlight]")
+- Pattern ID is displayed in parentheses next to pattern name in dropdowns (e.g., "My Pattern (march_dirR_spd3_6colors_rgb255-92-0)")
 
 **Spotlight Plan Customization:**
 The Oelo controller only returns 40 lights from the getController command.  As a result, spotlight plans are not fully represented in the response.  To counter this limitation, the Spotlight Plan Lights can be set with a list of the lights that should be turned on.  
