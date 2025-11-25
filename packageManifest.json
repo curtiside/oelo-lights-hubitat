@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"dateReleased": "2024-12-19",
-	"releaseNotes": "Oelo Lights Zone Driver v0.9.0\n\nControl Oelo Lights outdoor lighting controllers from Hubitat. Capture patterns created in the Oelo Evolution app and reuse them in automations and scenes.\n\nKey Features:\n- Capture and store up to 200 patterns per zone\n- Support for spotlight plans and standard pattern types\n- Customize spotlight plan LED selection\n- Pattern validation ensures reliability\n- Auto-polling with configurable intervals\n- Pattern management: rename and delete patterns\n- Multi-zone support (up to 6 zones)\n- Simple HTTP API - no authentication required",
+	"releaseNotes": "Version 0.9.1 Changes:\n- Command ordering: Commands now appear in logical order (On, Off, Apply Pattern, Get Pattern, Refresh, Scan for Controller, Stop Scan)\n- Preference ordering: Preferences reorganized with clear section separators\n- Pattern verification: applyPattern() and off() now verify patterns were successfully set\n- Controller discovery: Renamed \"Discover Controller\" to \"Scan for Controller\" and \"Stop Discovery\" to \"Stop Scan\"\n- Subnet auto-population: Subnet to scan field auto-populates with Hubitat hub's subnet when empty\n- Preference field clearing: Pattern management fields (rename, delete, new name) start empty on page load\n- Switch capability: Device appears in switches list for use in rules and automations\n- Command debouncing: Commands are automatically debounced with 1 second delay to prevent rapid successive commands from overwhelming the controller\n- Documentation improvements: Consolidated documentation, removed duplicate information, moved technical details to code documentation\n- Code organization: Protocol documentation moved to driver code header, configuration details consolidated in README",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",

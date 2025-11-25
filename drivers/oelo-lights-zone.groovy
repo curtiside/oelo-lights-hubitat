@@ -11,25 +11,12 @@
  * you to control up to 6 zones independently. Each zone requires a separate
  * virtual device instance with this driver.
  * 
- * ## Configuration Requirements
+ * ## Configuration
  * 
- * **Required Settings:**
- * - Controller IP Address: IPv4 address of Oelo controller (must be manually entered)
- * - Zone Number: Zone number (1-6) that this driver instance controls
- * 
- * **Optional Settings:**
- * - Poll Interval: How often to poll controller status (default: 30 seconds)
- * - Auto Polling: Automatically poll controller status (default: enabled)
- * - Patterns: Up to 200 user-defined patterns with custom names
- * - Spotlight Plan Lights: Comma-delimited list of LED indices for spotlight plans
- * - Debug Logging: Enable detailed logging for troubleshooting
- * - Command Timeout: HTTP request timeout (default: 10 seconds)
+ * See README.md for complete configuration requirements and details.
  * 
  * **No Authentication Required:**
- * The Oelo controller uses an open HTTP API with no authentication. No username,
- * password, API keys, or tokens are needed.
- * 
- * See CONFIGURATION.md for complete configuration details.
+ * The Oelo controller uses an open HTTP API with no authentication.
  * 
  * ## Protocol
  * 
@@ -37,39 +24,133 @@
  * 
  * **Endpoints:**
  * - `GET /getController` - Returns JSON array of zone statuses
- * - `GET /setPattern?{params}` - Sets pattern/color for zones
+ * - `GET /setPattern?patternType={type}&zones={zone}&num_zones=1&num_colors={n}&colors={rgb}&direction={F|R}&speed={0-20}&gap={0-1}&other=0&pause=0` - Sets pattern/color for zones
+ *   Response: "Command Received" (text)
+ * 
+ * **Key Parameters:**
+ * - `patternType`: Pattern type (`off`, `custom`, `march`, `stationary`, `river`, `chase`, `twinkle`, `split`, `fade`, `sprinkle`, `takeover`, `streak`, `bolt`, `spotlight`)
+ * - `zones`: Zone number (1-6)
+ * - `num_zones`: Number of zones (usually 1)
+ * - `num_colors`: Number of RGB triplets (1+)
+ * - `colors`: Comma-separated RGB values (0-255 each), e.g., "R,G,B,R,G,B,..."
+ * - `direction`: Direction (`F` for Forward, `R` for Reverse)
+ * - `speed`: Pattern animation speed (0-20)
+ * - `gap`: Gap between pattern elements (0-1)
+ * - `other`: Other parameter (usually 0)
+ * - `pause`: Pause duration (usually 0)
  * 
  * **Status Response Format:**
- * JSON array with zone objects containing:
+ * JSON array with zone objects:
+ * ```json
+ * [
+ *   {"num": 1, "pattern": "custom"},
+ *   {"num": 2, "pattern": "off"},
+ *   {"num": 3, "pattern": "march"},
+ *   {"num": 4, "pattern": "stationary"},
+ *   {"num": 5, "pattern": "river"},
+ *   {"num": 6, "pattern": "twinkle"}
+ * ]
+ * ```
  * - `num`: Zone number (1-6)
- * - `pattern`: Current pattern name or "off"
- * - `isOn`: Boolean indicating if zone is on
- * - Additional fields: `enabled`, `chipID`, `fw`, `ledCnt`, `name`, `speed`, `gap`, etc.
+ * - `pattern`: Pattern name or `"off"` when zone is off
+ * - Additional fields: `enabled`, `chipID`, `fw`, `ledCnt`, `name`, `speed`, `gap`, `direction`, `colorStr`, `numberOfColors`, `rgbOrder`, `slaveTo`, `isOn`, etc.
  * 
- * See PROTOCOL_SUMMARY.md for detailed protocol documentation.
+ * **Common Command Examples:**
+ * 
+ * Turn Off:
+ * `patternType=off&zones={zone}&num_zones=1&num_colors=1&colors=0,0,0&direction=F&speed=0&gap=0&other=0&pause=0`
+ * 
+ * Solid Color (White):
+ * `patternType=custom&zones={zone}&num_zones=1&num_colors=1&colors=255,255,255&direction=F&speed=0&gap=0&other=0&pause=0`
+ * 
+ * Solid Color (Red at 50% brightness):
+ * `patternType=custom&zones={zone}&num_zones=1&num_colors=1&colors=127,0,0&direction=F&speed=0&gap=0&other=0&pause=0`
+ * 
+ * Pattern Example (Christmas Candy Cane):
+ * `patternType=river&zones={zone}&num_zones=1&num_colors=4&colors=255,255,255,255,0,0,255,255,255,255,0,0&direction=R&speed=20&gap=0&other=0&pause=0`
+ * 
+ * **Brightness Control:**
+ * Brightness is controlled by scaling RGB values:
+ * - 100% brightness: `colors=255,255,255` (white)
+ * - 50% brightness: `colors=127,127,127` (white at half)
+ * - 0% brightness: `colors=0,0,0` (off)
+ * Formula: `scaled = (original * brightness) / 100`
+ * 
+ * **Protocol Notes:**
+ * 1. Polling: Status should be polled every 300 seconds (5 minutes) by default (configurable)
+ * 2. Command Verification: Optional verification polls controller after sending commands to ensure they were applied
+ * 3. Debouncing: Commands are automatically debounced with a 1 second delay. Rapid successive commands cancel pending commands and only the latest command is sent after the delay.
+ * 4. Zones: 6 independent zones (1-6)
+ * 5. Color Range: RGB values 0-255
+ * 6. State: Controller maintains state; polling retrieves current state
+ * 7. Errors: Check for "Command Received" in response text
+ * 8. Patterns: Patterns are captured from controller state via `getPattern()` command, not queryable from controller API
+ * 9. Pattern Verification: `applyPattern()` and `off()` commands automatically verify patterns were set successfully
+ * 
+ * **Note:** The Oelo controller does NOT provide an API endpoint to list available patterns. The controller only reports the current pattern name in the status response (e.g., `"pattern": "march"`), but does not expose a list of all available patterns. The driver captures patterns from the controller state.
+ * 
+ * ## Implementation Details
+ * 
+ * **HTTP Communication:**
+ * - Uses Hubitat's `httpGet()` for all HTTP requests
+ * - Asynchronous callbacks handle responses
+ * - Timeout configurable via `commandTimeout` preference
+ * - Error handling includes connection errors, timeouts, and invalid responses
+ * 
+ * **State Management:**
+ * - Patterns stored in `state.patterns` array
+ * - Driver version stored in `state.driverVersion`
+ * - Last used pattern stored in `state.lastUsedPattern`
+ * - Discovery state stored in `state.discovery*` variables
+ * - Verification state stored in `state.verification*` variables
+ * 
+ * **Polling:**
+ * - Uses `runIn()` for scheduled polling
+ * - Automatically reschedules if auto-polling enabled
+ * - Uses shared `fetchZoneData()` function for consistency
+ * - Updates device state via `updateZoneState()`
+ * 
+ * **Pattern URL Building:**
+ * - `buildCommandUrl()` constructs URLs from parameter maps
+ * - Filters out internal tracking fields (originalUrlString, etc.)
+ * - URL-encodes all parameter values
+ * - Validates controller IP before building URL
+ * 
+ * **Error Handling:**
+ * - All HTTP requests wrapped in try-catch blocks
+ * - Detailed error logging with context
+ * - Graceful degradation when controller unavailable
+ * - State validation before operations
  * 
  * ## Commands
  * 
- * **Primary Commands:**
- * - `setPattern()` - Set pattern chosen from Pattern Selection dropdown
- * - `off()` - Turn off lights
- * - `refresh()` - Get current state from controller
- * - `getPattern()` - Capture current pattern from controller and save it
+ * See README.md for user-facing command documentation.
  * 
- * **Pattern Selection:**
- * - Patterns: Configured in device preferences (up to 200 patterns)
- * - Patterns are selected via dropdown menu in device preferences
- * - Commands use the selected pattern from the dropdown
+ * **Available Commands:** `on()`, `off()`, `applyPattern()`, `getPattern()`, `refresh()`, `scanForController()`, `stopScan()`
  * 
- * ## Pattern Support
+ * ## Pattern Implementation
  * 
- * **Patterns:**
- * - Up to 200 patterns can be configured per device
- * - Patterns support two types: spotlight plans and non-spotlight plans
- * - Spotlight plans: Specific LEDs on, all others off (uses spotlightPlanLights setting)
- * - Non-spotlight plans: Standard pattern types (march, stationary, river, etc.)
- * - Pattern names are user-defined
- * - Patterns appear in Pattern Selection dropdown with plan type indicator
+ * See README.md for user-facing pattern documentation and workflow.
+ * 
+ * **Pattern Storage:**
+ * - Patterns stored in `state.patterns` array (up to 200 entries)
+ * - Each pattern contains: `id`, `name`, `urlParams`, `planType`, `originalColors`
+ * - Pattern ID: Stable identifier generated from pattern type and key parameters
+ *   Format: `{patternType}_{direction}_{speed}_{numColors}colors` (e.g., "march_dirR_spd3_6colors")
+ * - Pattern name: User-editable display name
+ * - `urlParams`: Contains all parameters needed to recreate the pattern URL
+ * - `originalUrlString`: Stored for comparison (not sent to controller)
+ * 
+ * **Pattern Validation:**
+ * - Colors string validation (correct number of RGB triplets, valid RGB values 0-255)
+ * - Complete pattern URL validation (all required parameters present, valid ranges)
+ * - Pattern string length checked against preference field limits
+ * 
+ * **Spotlight Plan Handling:**
+ * - Automatically detected when `patternType=spotlight`
+ * - Original colors stored separately for modification
+ * - Modified on use based on Spotlight Plan Lights setting
+ * - Creates RGB triplets for specified LED indices, all others set to off (0,0,0)
  * 
  * ## Attributes
  * 
@@ -84,7 +165,19 @@
  * 
  * ## Capabilities
  * 
+ * - `Switch`: Standard Hubitat switch capability (provides `on()` and `off()` commands)
  * - `Refresh`: Standard Hubitat refresh capability
+ * 
+ * ## Command Verification
+ * 
+ * Optional command verification feature (disabled by default):
+ * - After sending a command, polls the controller to verify it was applied
+ * - Compares expected state (from command URL) with actual controller state
+ * - Retries up to configurable number of times with delay between attempts
+ * - Sets `verificationStatus` attribute: "verified", "failed", "timeout", or "error"
+ * 
+ * Pattern verification: `applyPattern()` and `off()` commands automatically verify patterns were set
+ * by fetching current zone state and comparing with expected pattern.
  * 
  * ## Hubitat Groovy Sandbox Restrictions
  * 
@@ -109,13 +202,13 @@
  * 
  * - Based on Oelo Lights Home Assistant integration: https://github.com/Cinegration/Oelo_Lights_HA
  * - Hubitat Developer Documentation: https://docs2.hubitat.com/en/developer/overview
- * - See README.md, CONFIGURATION.md, PROTOCOL_SUMMARY.md, and DRIVER_PLAN.md for additional documentation
+ * - See README.md and DRIVER_PLAN.md for additional documentation
  * 
  * @author Curtis Ide
  */
 
 // Constants
-final String DRIVER_VERSION = "0.9.0"  // Driver version
+final String DRIVER_VERSION = "0.9.1"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
@@ -123,7 +216,6 @@ final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,3
 
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
-        capability "Refresh"
         capability "Switch"
         
         // Custom attributes
@@ -138,40 +230,45 @@ metadata {
         attribute "availablePatterns", "string"
         attribute "discoveredControllerIP", "string"
         
-        // Custom commands
-        command "setPattern"
-        command "getPattern"
-        command "discoverController"
-        command "stopDiscovery"
+        // Custom commands (ordered as requested)
         command "on"
         command "off"
+        command "applyPattern"
+        command "getPattern"
+        command "refresh"
+        command "scanForController"
+        command "stopScan"
     }
     
     preferences {
-        section("Controller Settings") {
-            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, description: "IP address of Oelo controller${state.discoveredControllerIP ? " (Discovered: ${state.discoveredControllerIP})" : ""}"
-            input name: "scanSubnet", type: "text", title: "Subnet to Scan (for discovery)", required: false, description: "Subnet prefix to scan (e.g., '192.168.1' or '10.16.1'). Leave empty to try common subnets."
-            input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
-        }
-        
         section("Pattern Selection") {
+            input name: "separator0", type: "paragraph", title: "───────── Pattern Selection ─────────", description: ""
             input name: "selectedPattern", type: "enum", title: "Select Pattern", 
                 options: getPatternOptions(), 
                 required: false, description: "Choose a pattern to set"
+            input name: "separator1", type: "paragraph", title: "───────── Pattern Management ─────────", description: ""
         }
         
         section("Pattern Management") {
             input name: "renamePattern", type: "enum", title: "Select Pattern to Rename", 
                 options: getPatternOptions(), 
-                required: false, description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
+                required: false, defaultValue: "", description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
             input name: "newPatternName", type: "text", title: "New Pattern Name", 
-                required: false, description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
+                required: false, defaultValue: "", description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
             input name: "deletePattern", type: "enum", title: "Delete Pattern", 
                 options: getPatternOptions(), 
-                required: false, description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
+                required: false, defaultValue: "", description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
+        }
+        
+        section("Controller Settings") {
+            input name: "separator2", type: "paragraph", title: "───────── Controller Settings ─────────", description: ""
+            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, description: "IP address of Oelo controller${state.discoveredControllerIP ? " (Discovered: ${state.discoveredControllerIP})" : ""}"
+            input name: "scanSubnet", type: "text", title: "Subnet to Scan (for discovery)", required: false, defaultValue: "", description: "Subnet prefix to scan (e.g., '192.168.1' or '10.16.1'). Leave empty to auto-detect from Hubitat hub subnet or try common subnets."
+            input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
         }
         
         section("Spotlight Plan Settings") {
+            input name: "separator3", type: "paragraph", title: "───────── Spotlight Plan Settings ─────────", description: ""
             input name: "maxLeds", type: "number", title: "Maximum LEDs per Zone", 
                 required: false, defaultValue: MAX_LEDS, range: "1..500",
                 description: "Maximum number of LEDs in this zone (default: ${MAX_LEDS})"
@@ -181,11 +278,13 @@ metadata {
         }
         
         section("Polling") {
-            input name: "pollInterval", type: "number", title: "Poll Interval (seconds)", range: "10..300", defaultValue: 30, description: "How often to poll controller status"
+            input name: "separator4", type: "paragraph", title: "───────── Polling ─────────", description: ""
             input name: "autoPoll", type: "bool", title: "Enable Auto Polling", defaultValue: true, description: "Automatically poll controller status"
+            input name: "pollInterval", type: "number", title: "Poll Interval (seconds)", range: "10..300", defaultValue: 30, description: "How often to poll controller status"
         }
         
         section("Command Verification") {
+            input name: "separator5", type: "paragraph", title: "───────── Command Verification ─────────", description: ""
             input name: "verifyCommands", type: "bool", title: "Verify Commands", defaultValue: false, description: "Verify commands by checking controller status after sending"
             input name: "verificationRetries", type: "number", title: "Verification Retries", range: "1..10", defaultValue: 3, description: "Number of times to retry verification"
             input name: "verificationDelay", type: "number", title: "Verification Delay (seconds)", range: "1..10", defaultValue: 2, description: "Seconds to wait between verification attempts"
@@ -193,8 +292,9 @@ metadata {
         }
         
         section("Advanced") {
-            input name: "logEnable", type: "bool", title: "Enable Debug Logging", defaultValue: false, description: "Enable detailed logging"
+            input name: "separator6", type: "paragraph", title: "───────── Advanced ─────────", description: ""
             input name: "commandTimeout", type: "number", title: "Command Timeout (seconds)", range: "5..30", defaultValue: 10, description: "HTTP request timeout"
+            input name: "logEnable", type: "bool", title: "Enable Debug Logging", defaultValue: false, description: "Enable detailed logging"
         }
     }
 }
@@ -216,22 +316,9 @@ def updated() {
     // Set driver version immediately
     setDriverVersion()
     
-    // Pre-select most recently captured pattern in renamePattern if not set
-    if ((!settings.renamePattern || settings.renamePattern == "") && state.lastCapturedPatternName) {
-        def lastCaptured = state.lastCapturedPatternName
-        def patterns = state.patterns ?: []
-        def patternExists = patterns.find { it && it.name == lastCaptured }
-        if (patternExists) {
-            // Try to set renamePattern to last captured pattern
-            // Note: app.updateSetting() may not work in drivers, but we'll try
-            try {
-                app.updateSetting("renamePattern", lastCaptured)
-                debugLog "Pre-selected most recently captured pattern '${lastCaptured}' in renamePattern"
-            } catch (Exception e) {
-                debugLog "Could not pre-select renamePattern (may not be supported in drivers): ${e.message}"
-            }
-        }
-    }
+    // Note: We don't auto-populate settings via app.updateSetting() to ensure
+    // each device instance maintains its own separate settings. Users should
+    // manually enter values in preferences.
     
     // Handle pattern renaming if renamePattern and newPatternName preferences were set
     if (settings.renamePattern && settings.renamePattern != "" && settings.newPatternName && settings.newPatternName.trim() != "") {
@@ -263,6 +350,9 @@ def updated() {
             updateAvailablePatternsAttribute()
         }
         }
+        
+        // Clear the rename fields after processing
+        state.clearRenameFields = true
     }
     
     // Handle pattern deletion if deletePattern preference was set
@@ -294,11 +384,22 @@ def updated() {
             log.info "Deleted pattern '${patternName}' and compacted list"
             updateAvailablePatternsAttribute()
             
-            // Clear the deletePattern setting (can't use app.updateSetting in driver, will clear on next save)
-            // User will need to save preferences again to clear the selection
+            // Clear the delete field after processing
+            state.clearDeleteField = true
         } else {
             log.warn "Pattern '${patternName}' not found for deletion"
         }
+    }
+    
+    // Clear preference fields that were processed (using state flag to trigger on next page load)
+    // Note: We can't directly clear settings in drivers, but we can use state to track what needs clearing
+    if (state.clearRenameFields) {
+        state.clearRenameFields = false
+        // The fields will appear empty on next load due to defaultValue=""
+    }
+    if (state.clearDeleteField) {
+        state.clearDeleteField = false
+        // The field will appear empty on next load due to defaultValue=""
     }
     
     // Handle spotlightPlanLights setting changes
@@ -382,6 +483,11 @@ def setDriverVersion() {
 def initialize() {
     // Set driver version (in case initialize is called directly)
     setDriverVersion()
+    
+    // Note: We don't auto-populate settings via app.updateSetting() to ensure
+    // each device instance maintains its own separate settings. Users should
+    // manually enter values in preferences. Discovered values are shown in
+    // preference descriptions for reference.
     
     // Initialize patterns storage if not exists
     if (!state.patterns) {
@@ -511,13 +617,20 @@ def off() {
         pause: 0
     ])
     
-    def success = sendCommand(url)
-    if (success) {
-        sendEvent(name: "switch", value: "off")
+    if (!url) {
+        log.error "Failed to build command URL for off()"
+        return
     }
+    
+    // Use debounced command sender
+    debouncedSendCommand(url)
+    
+    // Note: Event updates and verification will happen in sendCommand callback
+    // For immediate feedback, we'll update switch optimistically
+    sendEvent(name: "switch", value: "off")
 }
 
-// Internal function: Set effect (used by setPattern command)
+// Internal function: Set effect (used by applyPattern command)
 def setEffect(String effectName) {
     logDebug "Setting effect: ${effectName}"
     
@@ -555,20 +668,76 @@ def setEffect(String effectName) {
         }
     }
     
-    // Send command and store for future on() calls
-    def success = sendCommand(patternUrl)
-    if (success) {
-        sendEvent(name: "effectName", value: effectName)
-        sendEvent(name: "lastCommand", value: patternUrl)
-        sendEvent(name: "switch", value: "on")
-        state.lastUsedPattern = effectName  // Store for on() command
-        logDebug "Pattern '${effectName}' set and stored"
+    // Send command with debouncing and store for future on() calls
+    debouncedSendCommand(patternUrl)
+    
+    // Store pattern info for verification callback
+    state.pendingPatternVerification = [
+        effectName: effectName,
+        patternUrl: patternUrl,
+        urlParams: urlParams
+    ]
+    
+    // Optimistic updates for immediate feedback
+    sendEvent(name: "effectName", value: effectName)
+    sendEvent(name: "lastCommand", value: patternUrl)
+    sendEvent(name: "switch", value: "on")
+    state.lastUsedPattern = effectName  // Store for on() command
+    logDebug "Pattern '${effectName}' queued (debounced) and stored"
+}
+
+// Verify that the pattern was successfully set on the controller
+def verifyPatternSet(String effectName, String patternUrl, Map urlParams) {
+    // Wait a short moment for controller to process the command
+    runIn(1, "verifyPatternSetCallback", [data: [
+        effectName: effectName,
+        patternUrl: patternUrl,
+        expectedPatternType: urlParams.patternType
+    ]])
+}
+
+// Callback to verify pattern was set (called after delay)
+def verifyPatternSetCallback(data) {
+    String effectName = data.effectName
+    String expectedPatternType = data.expectedPatternType
+    
+    if (!controllerIP) {
+        log.warn "Cannot verify pattern '${effectName}': Controller IP not configured"
+        return
+    }
+    
+    logDebug "Verifying pattern '${effectName}' was set on controller..."
+    
+    // Fetch current zone state
+    fetchZoneData { zoneData ->
+        if (!zoneData) {
+            log.error "Pattern verification FAILED: Could not retrieve zone data from controller"
+            return
+        }
+        
+        def currentPattern = zoneData.pattern ?: zoneData.patternType ?: "off"
+        def isOn = zoneData.isOn != null ? zoneData.isOn : (currentPattern != "off" && currentPattern != null && currentPattern.toString().trim() != "")
+        
+        // Check if pattern matches what we set
+        boolean verified = false
+        if (expectedPatternType == "off") {
+            verified = (currentPattern == "off" || !isOn)
+        } else {
+            // For non-off patterns, check if pattern type matches
+            verified = (currentPattern == expectedPatternType || currentPattern != "off")
+        }
+        
+        if (verified) {
+            log.info "Pattern verification SUCCESSFUL: Pattern '${effectName}' (${expectedPatternType}) confirmed set on controller. Current state: pattern='${currentPattern}', isOn=${isOn}"
+        } else {
+            log.error "Pattern verification FAILED: Expected pattern '${effectName}' (${expectedPatternType}), but controller shows pattern='${currentPattern}', isOn=${isOn}. Pattern may not have been applied."
+        }
     }
 }
 
-// Custom command: Set pattern (supports both parameterized and preference-based)
-def setPattern(String patternName = null) {
-    log.warn "setPattern() command called${patternName ? " with pattern: ${patternName}" : ""}"
+// Custom command: Apply pattern (supports both parameterized and preference-based)
+def applyPattern(String patternName = null) {
+    log.warn "applyPattern() command called${patternName ? " with pattern: ${patternName}" : ""}"
     
     // If patternName parameter provided, use it; otherwise use preference selection
     def selectedPattern = patternName ?: settings.selectedPattern
@@ -584,9 +753,9 @@ def setPattern(String patternName = null) {
 }
 
 // Custom command: Discover Oelo controller on network
-def discoverController() {
-    log.warn "discoverController() command called"
-    log.info "=== CONTROLLER DISCOVERY STARTED ==="
+def scanForController() {
+    log.warn "scanForController() command called"
+    log.info "=== CONTROLLER SCAN STARTED ==="
     
     // Clear previous discovery result and reset stop flag
     state.discoveredControllerIP = null
@@ -682,8 +851,8 @@ def scanNextIP() {
         log.info "Starting scan of subnet ${subnet}.0/24 (IPs 1-254)..."
     }
     
-    // Log every 20th IP (including the last in each block: 20, 40, 60, etc.)
-    if (currentIP % 20 == 0 || currentIP == 1) {
+    // Log every 10th IP (including the first: 1, 10, 20, 30, etc.)
+    if (currentIP % 10 == 0 || currentIP == 1) {
         def ip = "${subnet}.${currentIP}"
         log.info "Scanning IP ${currentIP}/254: ${ip}"
     }
@@ -722,7 +891,9 @@ def scanNextIP() {
                 sendEvent(name: "discoveredControllerIP", value: ip)
                 log.info "=== CONTROLLER DISCOVERED ==="
                 log.info "IP Address: ${ip}"
-                log.info "Please copy this IP address and paste it into the 'Controller IP Address' preference field, then save."
+                log.info "Please copy this IP address and paste it into the 'Controller IP Address' preference field for this device, then save."
+                log.info "Note: Each device instance has its own settings. Make sure you're updating the correct device."
+                
                 state.discoveryFound = true
                 state.discoverySubnets = null
                 state.discoverySubnetIndex = null
@@ -768,9 +939,9 @@ def scanNextIP() {
     }
 }
 
-// Stop discovery scan
-def stopDiscovery() {
-    log.info "=== STOPPING CONTROLLER DISCOVERY ==="
+// Stop scan
+def stopScan() {
+    log.info "=== STOPPING CONTROLLER SCAN ==="
     state.discoveryStopped = true
     state.discoverySubnets = null
     state.discoverySubnetIndex = null
@@ -791,7 +962,7 @@ def stopDiscovery() {
     } catch (Exception e) {
         debugLog "Error unscheduling all: ${e.message}"
     }
-    log.info "Discovery scan stopped"
+    log.info "Controller scan stopped"
 }
 
 // Timeout safety net: if HTTP callback doesn't fire, continue scanning anyway
@@ -1859,6 +2030,8 @@ def getPatternUrl(String effectName) {
         // Use stored URL parameters to build command URL
         def urlParams = pattern.urlParams.clone()
         urlParams.zones = zoneNumber  // Ensure zone number is current
+        // Remove internal tracking fields that shouldn't be sent to controller
+        urlParams.remove("originalUrlString")
         
         // Handle spotlight plan modification on use
         if (pattern.planType == "spotlight") {
@@ -1900,27 +2073,105 @@ def getPatternUrl(String effectName) {
 
 // HTTP Communication
 
+// Debounced command sender - prevents rapid successive commands
+// Cancels any pending command and schedules new one after 1 second delay
+def debouncedSendCommand(String url) {
+    if (!url || url.trim() == "") {
+        log.error "debouncedSendCommand called with empty or null URL"
+        return false
+    }
+    
+    // Cancel any pending debounced command
+    def pendingCommand = state.pendingDebouncedCommand
+    if (pendingCommand) {
+        try {
+            unschedule("executeDebouncedCommand")
+        } catch (Exception e) {
+            logDebug "Could not unschedule pending command: ${e.message}"
+        }
+        logDebug "Cancelled pending command, scheduling new one"
+    }
+    
+    // Store the new command URL
+    state.pendingDebouncedCommand = url
+    state.debounceCommandTime = now()
+    
+    // Schedule command to execute after 1 second debounce delay
+    runIn(1, "executeDebouncedCommand", [data: [url: url]])
+    
+    logDebug "Command debounced: will send after 1 second delay"
+    return true  // Return optimistically
+}
+
+// Execute debounced command (called after delay)
+def executeDebouncedCommand(data) {
+    def url = data?.url ?: state.pendingDebouncedCommand
+    
+    if (!url) {
+        log.warn "executeDebouncedCommand called but no URL found"
+        return
+    }
+    
+    // Clear pending command
+    state.pendingDebouncedCommand = null
+    state.lastCommandTime = now()
+    
+    // Send the actual command
+    sendCommand(url)
+}
+
 def sendCommand(String url) {
     logDebug "Sending command: ${url}"
     
+    if (!url || url.trim() == "") {
+        log.error "sendCommand called with empty or null URL"
+        return false
+    }
+    
+    if (!controllerIP) {
+        log.error "Cannot send command: Controller IP not configured"
+        return false
+    }
+    
     try {
-        httpGet([
-            uri: url,
-            timeout: (commandTimeout ?: 10) * 1000
-        ]) { response ->
+        // Ensure URL is a proper String (not a GString or other type)
+        String commandUrl = url.toString()
+        
+        // Build request map separately to avoid any closure parsing issues
+        Map requestMap = [:]
+        requestMap.put("uri", commandUrl)
+        requestMap.put("timeout", (commandTimeout ?: 10) * 1000)
+        
+        httpGet(requestMap) { response ->
             def status = response.status
             def text = response.data?.text ?: response.data?.toString() ?: ""
             
             if (status == 200 && text.contains("Command Received")) {
                 logDebug "Command sent successfully"
                 
+                // Handle pattern verification if pending
+                def pendingVerification = state.pendingPatternVerification
+                if (pendingVerification) {
+                    verifyPatternSet(
+                        pendingVerification.effectName,
+                        pendingVerification.patternUrl,
+                        pendingVerification.urlParams
+                    )
+                    state.pendingPatternVerification = null
+                }
+                
                 // If verification is enabled, start verification process
                 if (verifyCommands) {
-                    startVerification(url)
+                    startVerification(commandUrl)
                 } else {
-                    // Optimistic update when verification disabled
-                    def isOff = url.contains("patternType=off")
+                    // Update switch state based on command
+                    def isOff = commandUrl.contains("patternType=off")
                     sendEvent(name: "switch", value: isOff ? "off" : "on")
+                    
+                    // If this was an off command, verify it was set
+                    if (isOff) {
+                        verifyPatternSet("off", commandUrl, [patternType: "off"])
+                    }
                 }
                 
                 return true
@@ -1971,7 +2222,12 @@ def startVerification(String commandUrl) {
     state.verificationStartTime = now()
     
     // Start first verification attempt immediately
-    verifyCommandState(commandUrl, expectedState.toString(), 1, now())
+    verifyCommandState([
+        commandUrl: commandUrl,
+        expectedState: expectedState.toString(),
+        attempt: 1,
+        startTime: now()
+    ])
 }
 
 // Verify command state (called via runIn for async retries)
@@ -1988,7 +2244,7 @@ def verifyCommandState(data) {
     
     // Check if we've exceeded timeout
     if (now() - startTime > timeoutSeconds * 1000) {
-        log.warn "Verification timeout after ${timeoutSeconds} seconds"
+        log.error "Command verification ERROR: Timeout after ${timeoutSeconds} seconds. Controller may be slow to respond or command may not have been applied."
         sendEvent(name: "verificationStatus", value: "timeout")
         state.verificationCommandUrl = null
         state.verificationExpectedState = null
@@ -1996,66 +2252,89 @@ def verifyCommandState(data) {
     }
     
     // Get current status from controller
-    getCurrentZoneStateForVerification(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+    // Ensure all parameters are properly typed to avoid closure scoping issues
+    String urlStr = commandUrl?.toString() ?: ""
+    int currentAttempt = attempt ?: 1
+    int maxAttempts = maxRetries ?: 3
+    int retryDelay = delaySeconds ?: 2
+    long verificationStartTime = startTime ?: now()
+    
+    getCurrentZoneStateForVerification(urlStr, currentAttempt, maxAttempts, retryDelay, verificationStartTime)
 }
 
 // Get current zone state and compare with expected (uses poll() logic via fetchZoneData)
+// Verification process:
+// 1. Parses the command URL to determine expected state (patternType, isOff, etc.)
+// 2. Fetches current zone state from controller via /getController endpoint
+// 3. Compares current state with expected state:
+//    - For "off" commands: verifies pattern == "off" and isOff == true
+//    - For "on" commands: verifies pattern matches expected patternType
+//    - For custom patterns: verifies pattern is not "off"
+// 4. Retries up to maxRetries times with delaySeconds between attempts if verification fails
 def getCurrentZoneStateForVerification(String commandUrl, int attempt, int maxRetries, int delaySeconds, long startTime) {
     if (!controllerIP) {
-        log.error "Cannot verify: Controller IP not configured"
+        log.error "Command verification ERROR: Controller IP not configured"
         sendEvent(name: "verificationStatus", value: "error")
         return
     }
     
     logDebug "Getting zone state for verification (attempt ${attempt}/${maxRetries})"
     
+    // Capture variables explicitly to avoid closure scoping issues
+    String urlToVerify = commandUrl?.toString() ?: ""
+    int currentAttempt = attempt
+    int maxAttempts = maxRetries
+    int retryDelay = delaySeconds
+    long verificationStartTime = startTime
+    
     // Use shared fetchZoneData function (same logic as poll())
     fetchZoneData { zoneData ->
         if (!zoneData) {
             log.warn "Zone ${zoneNumber} not found in response for verification"
-            handleVerificationRetry(commandUrl, attempt, maxRetries, delaySeconds, startTime)
+            handleVerificationRetry(urlToVerify, currentAttempt, maxAttempts, retryDelay, verificationStartTime)
             return
         }
         
-                        def currentState = [
-                            pattern: zoneData.pattern ?: "off",
-                            isOff: (zoneData.pattern == "off")
-                        ]
-                        
-                        // Get expected state from stored state
-                        def expectedState = state.verificationExpectedState
-                        if (!expectedState) {
-                            // Try to parse from command URL
-                            expectedState = parseCommandExpectation(commandUrl)
-                        }
-                        
-                        if (matchesExpectedState(currentState, expectedState)) {
-                            logDebug "Command verified successfully on attempt ${attempt}"
-                            sendEvent(name: "verificationStatus", value: "verified")
-                            updateStateFromVerification(currentState)
-                            // Clear verification state
-                            state.verificationCommandUrl = null
-                            state.verificationExpectedState = null
-                        } else {
-                            logDebug "Verification attempt ${attempt}/${maxRetries} failed. Expected: ${expectedState}, Got: ${currentState}"
-                            
-                            // Schedule next attempt if not exceeded max retries
-                            if (attempt < maxRetries) {
-                                def nextAttempt = attempt + 1
-                                logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
-                                runIn(delaySeconds, "verifyCommandState", [data: [
-                                    commandUrl: commandUrl,
-                                    attempt: nextAttempt,
-                                    startTime: startTime
-                                ]])
-                            } else {
-                                log.warn "Command verification failed after ${maxRetries} attempts"
-                                sendEvent(name: "verificationStatus", value: "failed")
-                                // Clear verification state
-                                state.verificationCommandUrl = null
-                                state.verificationExpectedState = null
-                            }
-                        }
+        def currentState = [
+            pattern: zoneData.pattern ?: "off",
+            isOff: (zoneData.pattern == "off")
+        ]
+        
+        // Get expected state from stored state
+        def expectedState = state.verificationExpectedState
+        if (!expectedState) {
+            // Try to parse from command URL
+            expectedState = parseCommandExpectation(urlToVerify)
+        }
+        
+        if (matchesExpectedState(currentState, expectedState)) {
+            log.info "Command verification SUCCESSFUL on attempt ${currentAttempt}/${maxAttempts}. Controller state matches expected: pattern='${currentState.pattern}', isOff=${currentState.isOff}"
+            sendEvent(name: "verificationStatus", value: "verified")
+            updateStateFromVerification(currentState)
+            // Clear verification state
+            state.verificationCommandUrl = null
+            state.verificationExpectedState = null
+        } else {
+            logDebug "Verification attempt ${currentAttempt}/${maxAttempts} failed. Expected: ${expectedState}, Got: ${currentState}"
+            
+            // Schedule next attempt if not exceeded max retries
+            if (currentAttempt < maxAttempts) {
+                def nextAttempt = currentAttempt + 1
+                logDebug "Scheduling verification retry ${nextAttempt} in ${retryDelay} seconds"
+                def retryData = [
+                    commandUrl: urlToVerify,
+                    attempt: nextAttempt,
+                    startTime: verificationStartTime
+                ]
+                runIn(retryDelay, "verifyCommandState", [data: retryData])
+            } else {
+                log.error "Command verification FAILED after ${maxAttempts} attempts. Expected: patternType='${expectedState.patternType}', isOff=${expectedState.isOff}. Got: pattern='${currentState.pattern}', isOff=${currentState.isOff}. Controller may not have applied the command."
+                sendEvent(name: "verificationStatus", value: "failed")
+                // Clear verification state
+                state.verificationCommandUrl = null
+                state.verificationExpectedState = null
+            }
+        }
     }
 }
 
@@ -2075,13 +2354,14 @@ def handleVerificationRetry(String commandUrl, int attempt, int maxRetries, int 
         }
         
         logDebug "Scheduling verification retry ${nextAttempt} in ${delaySeconds} seconds"
-        runIn(delaySeconds, "verifyCommandState", [data: [
+        def retryData = [
             commandUrl: commandUrl,
             attempt: nextAttempt,
             startTime: startTime
-        ]])
+        ]
+        runIn(delaySeconds, "verifyCommandState", [data: retryData])
     } else {
-        log.warn "Command verification failed after ${maxRetries} attempts"
+        log.error "Command verification FAILED after ${maxRetries} attempts. Controller may not have applied the command."
         sendEvent(name: "verificationStatus", value: "failed")
         state.verificationCommandUrl = null
         state.verificationExpectedState = null
@@ -2409,7 +2689,19 @@ def toIntSafe(value, defaultValue = 0) {
 }
 
 def buildCommandUrl(Map params) {
-    def query = params.collect { k, v -> "${k}=${java.net.URLEncoder.encode(v.toString(), "UTF-8")}" }.join("&")
+    if (!controllerIP) {
+        log.error "Cannot build command URL: Controller IP not configured"
+        return null
+    }
+    if (!params) {
+        log.error "Cannot build command URL: No parameters provided"
+        return null
+    }
+    // Filter out internal tracking fields that shouldn't be sent to controller
+    def filteredParams = params.findAll { k, v -> 
+        k != "originalUrlString" && !k.startsWith("original")
+    }
+    def query = filteredParams.collect { k, v -> "${k}=${java.net.URLEncoder.encode(v.toString(), "UTF-8")}" }.join("&")
     return "http://${controllerIP}/setPattern?${query}"
 }
 

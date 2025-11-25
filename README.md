@@ -37,56 +37,256 @@ Custom Hubitat driver for controlling Oelo Lights outdoor lighting controllers v
 
 ### Required Settings
 
-1. **Controller IP Address**
-   - Enter the IPv4 address of your Oelo controller (e.g., `192.168.1.100`)
-   - Must be manually entered (no auto-discovery)
+1. **Controller IP Address** (Required)
+   - IP address of the Oelo controller on your local network
+   - Format: IPv4 address (e.g., `192.168.1.100`)
+   - Can be discovered via `scanForController()` command or manually entered
+   - Driver validates IP by attempting to connect to `/getController` endpoint
    - See [Finding Controller IP](#finding-controller-ip) below
 
-2. **Zone Number**
-   - Select zone number (1-6) that this device instance controls
-   - Each zone requires a separate virtual device
+2. **Zone Number** (Required)
+   - Zone number (1-6) that this driver instance controls
+   - Each zone requires a separate virtual device instance
+   - Range: 1-6
 
 ### Optional Settings
 
-- **Poll Interval**: How often to poll controller status (default: 30 seconds)
-- **Auto Polling**: Automatically poll controller status (default: enabled)
-- **Patterns**: Capture and manage up to 200 patterns (see [Patterns](#patterns) below)
-- **Spotlight Plan Lights**: Comma-delimited list of LED indices to turn on for spotlight plans (e.g., "1,2,3,4,8,9,10,11")
-- **Max LEDs**: Maximum number of LEDs in this zone (default: 500)
-- **Debug Logging**: Enable detailed logging for troubleshooting
-- **Command Timeout**: HTTP request timeout (default: 10 seconds)
+3. **Subnet to Scan** (Optional)
+   - Subnet prefix for controller discovery (e.g., '192.168.1' or '10.16.1')
+   - Leave empty to use your Hubitat hub's subnet (shown in description)
+   - Used by `scanForController()` command
+
+4. **Poll Interval** (Optional, Default: 300 seconds)
+   - How often to poll controller status
+   - Range: 10-3600 seconds
+   - Recommended: 300 seconds (5 minutes)
+
+5. **Enable Auto Polling** (Optional, Default: Enabled)
+   - Automatically poll controller status
+   - Disable to reduce network traffic
+
+6. **Patterns** (Optional, Up to 200)
+   - Capture and manage up to 200 patterns
+   - Patterns captured via `getPattern()` command
+   - Patterns can be renamed and deleted via preferences
+   - See [Patterns](#patterns) below for details
+
+7. **Spotlight Plan Lights** (Optional)
+   - Comma-delimited list of LED indices for spotlight plans (e.g., "1,2,3,4,8,9,10,11")
+   - Automatically normalized (duplicates removed, sorted)
+   - Default includes common spotlight LED positions
+
+8. **Maximum LEDs per Zone** (Optional, Default: 500)
+   - Maximum number of LEDs in this zone
+
+9. **Verify Commands** (Optional, Default: Disabled)
+   - Verify commands by checking controller status after sending
+   - Polls controller to ensure command was applied
+
+10. **Verification Retries** (Optional, Default: 3)
+    - Number of times to retry verification
+    - Range: 1-10
+
+11. **Verification Delay** (Optional, Default: 2 seconds)
+    - Seconds to wait between verification attempts
+    - Range: 1-10 seconds
+
+12. **Verification Timeout** (Optional, Default: 30 seconds)
+    - Maximum time to wait for verification
+    - Range: 10-120 seconds
+
+13. **Command Timeout** (Optional, Default: 10 seconds)
+    - HTTP request timeout
+    - Range: 5-30 seconds
+
+14. **Enable Debug Logging** (Optional, Default: Disabled)
+    - Enable detailed logging for troubleshooting
+
+### Authentication & Security
+
+**No Credentials Required**
+
+The Oelo Lights controller uses an open HTTP API with no authentication.
+
+- No username/password required
+- No API keys or tokens
+- No encryption (HTTP only, not HTTPS)
+- Simple GET requests to controller IP
+
+**Security Considerations:**
+- Controller should be on a trusted local network
+- Consider firewall rules to restrict access
+- Controller is accessible to anyone on the network who knows the IP
 
 ### Finding Controller IP
 
-The Oelo controller does not support automatic discovery. You must manually find the IP address using one of these methods:
+#### Method 1: Controller Discovery (Recommended)
 
-- **Oelo Evolution App**: Settings → Device Info
-- **Router Admin**: Check "Connected Devices" or "DHCP Client List"
-- **Network Scanner**: Use Fing, Angry IP Scanner, or nmap
-- **Controller Display**: Some controllers display IP on built-in screen
+The driver includes a network scanning feature to discover Oelo controllers:
 
-See [CONFIGURATION.md](./CONFIGURATION.md) for detailed configuration instructions.
+1. **Use `scanForController()` Command:**
+   - Open device preferences
+   - Click the **Scan for Controller** button
+   - The driver will scan your network subnet
+   - When found, the discovered IP address will be:
+     - **Logged in the device logs**: `=== CONTROLLER DISCOVERED ===` followed by `IP Address: x.x.x.x`
+     - Shown in the **Controller IP Address** preference description: `(Discovered: x.x.x.x)`
+   - **Check the device logs** to see the discovered IP address
+   - **Manually copy** the discovered IP address into the **Controller IP Address** field
+   - Click **Save Preferences** to save the discovered IP
+   - **Important:** Each device instance has separate settings. Make sure you're updating the correct device.
+
+2. **Subnet Configuration:**
+   - The **Subnet to Scan** field shows your Hubitat hub's subnet in the description if empty
+   - You can manually enter a subnet if needed (e.g., '192.168.1' or '10.16.1')
+   - Leave empty to use the hub's subnet during scanning
+
+3. **Stop Scanning:**
+   - Use the **Stop Scan** command to stop an active scan
+
+**How Network Scanning Works:**
+- Scans IP addresses in the configured subnet (e.g., 192.168.1.1-254)
+- Tests each IP with HTTP GET to `/getController`
+- Identifies Oelo controllers by checking for valid JSON response
+- Logs progress every 10 IP addresses scanned
+- When controller is found, IP address is logged and shown in preference description
+- **You must manually enter the discovered IP** into the Controller IP Address field
+
+**Limitations:**
+- Scanning can be slow (tests each IP sequentially)
+- May trigger security alerts on some networks
+- Requires controller to be powered on and responding
+- Works best when controller and Hubitat are on same subnet
+
+**Recommendation:**
+- Try `scanForController()` first for easiest setup
+- Fall back to manual methods if scanning doesn't find the controller
+- Use manual IP entry if you know the IP address
+
+#### Method 2: Manual Methods
+
+If automatic discovery doesn't work, you can manually find the IP address:
+
+**Oelo Evolution App:**
+1. Open the Oelo Evolution app on your smartphone/tablet
+2. Navigate to Settings or Device Information
+3. Find the IP address listed there
+
+**Router Admin Interface:**
+1. Log into your router's web interface
+2. Navigate to "Connected Devices" or "DHCP Client List"
+3. Look for device named "Oelo" or similar
+4. Note the IP address assigned
+
+**Network Scanner Tools:**
+Use network scanning software to scan your local network:
+- **Fing** (mobile app)
+- **Angry IP Scanner** (desktop)
+- **nmap** (command line): `nmap -sn 192.168.1.0/24`
+- **Advanced IP Scanner** (Windows)
+
+Look for devices responding on port 80 (HTTP) that return JSON from `/getController`
+
+**Controller Display:**
+Some Oelo controllers may display their IP address on a built-in screen or LED display.
+
+### IP Address Validation
+
+The driver validates the IP address by:
+
+1. **Format Validation**
+   - Checks if input is a valid IPv4 address format
+   - Rejects invalid formats immediately
+
+2. **Connection Test**
+   - Attempts HTTP GET request to `http://{IP}/getController`
+   - Timeout: 10 seconds (configurable)
+   - Expects HTTP 200 response
+
+3. **Response Validation**
+   - Verifies response is valid JSON
+   - Checks response is an array (expected format)
+   - Confirms device is an Oelo controller
+
+**If validation fails:**
+- Error message displayed to user
+- Driver will not initialize until valid IP is provided
+- User must correct IP address and try again
+
+### Configuration Workflow
+
+#### Initial Setup
+
+1. **Find Controller IP**
+   - Use `scanForController()` command or one of the manual methods above
+   - Note the IP address (e.g., `192.168.1.100`)
+
+2. **Create Virtual Device**
+   - Hubitat → Devices → Add Virtual Device
+   - Select "Oelo Lights Zone" driver
+   - Configure device:
+     - Enter Controller IP Address
+     - Set Zone Number (1-6)
+     - Configure optional settings as needed
+
+3. **Validate Connection**
+   - Driver attempts to connect on initialization
+   - Check device status - should show "Online"
+   - Test by turning zone on/off
+
+4. **Repeat for Additional Zones**
+   - Create separate virtual device for each zone (1-6)
+   - Use same Controller IP Address
+   - Set different Zone Number for each
+   - **Tip**: You can also create multiple devices for the same zone, each with a different saved pattern, to quickly switch between patterns via automations or scenes
+
+#### Reconfiguration
+
+- IP address can be changed in device preferences
+- Driver re-validates connection when preferences are updated
+- Zone number can be changed (creates new device instance)
+
+### Configuration Summary
+
+| Configuration Item | Required | Default | Notes |
+|-------------------|----------|---------|-------|
+| Controller IP Address | ✅ Yes | None | Can be discovered or manually entered |
+| Zone Number | ✅ Yes | 1 | Range: 1-6 |
+| Subnet to Scan | ❌ No | Empty | Shows hub subnet in description if empty |
+| Poll Interval | ❌ No | 300 sec | Range: 10-3600 sec |
+| Enable Auto Polling | ❌ No | Enabled | Can be disabled |
+| Patterns | ❌ No | None | Up to 200 patterns |
+| Spotlight Plan Lights | ❌ No | Default list | Comma-delimited LED indices |
+| Maximum LEDs per Zone | ❌ No | 500 | Maximum LEDs in zone |
+| Verify Commands | ❌ No | Disabled | Verify commands after sending |
+| Verification Retries | ❌ No | 3 | Range: 1-10 |
+| Verification Delay | ❌ No | 2 sec | Range: 1-10 sec |
+| Verification Timeout | ❌ No | 30 sec | Range: 10-120 sec |
+| Command Timeout | ❌ No | 10 sec | Range: 5-30 sec |
+| Enable Debug Logging | ❌ No | Disabled | Enable for troubleshooting |
+| **Credentials** | ❌ **No** | **None** | **No authentication required** |
+
+**Key Points:**
+- ✅ No credentials/authentication required
+- ✅ Controller discovery via `scanForController()` command
+- ✅ Manual IP entry also supported
+- ✅ IP validation on connection
+- ✅ Simple HTTP API (no encryption)
+- ✅ Up to 200 patterns can be captured and managed
 
 ## Usage
 
-### Creating Virtual Devices
-
-1. Navigate to **Devices** → **Add Virtual Device**
-2. Select **Oelo Lights Zone** as the driver
-3. Configure device:
-   - **Controller IP Address**: Your Oelo controller IP
-   - **Zone Number**: 1-6 (one per device)
-   - Configure optional settings as needed
-4. Repeat for each zone (1-6) you want to control
-
 ### Commands
 
-The driver provides the following commands:
+The driver provides the following commands (ordered as they appear in Hubitat):
 
-- **`setPattern()`**: Set a pattern chosen from the Pattern Selection dropdown
-- **`getPattern()`**: Capture the current pattern from the controller and save it
+- **`on()`**: Turn on lights using the last used pattern or selected pattern
 - **`off()`**: Turn off the lights
+- **`applyPattern()`**: Apply pattern chosen from Pattern Selection dropdown
+- **`getPattern()`**: Capture the current pattern from the controller and save it
 - **`refresh()`**: Get current state from controller
+- **`scanForController()`**: Scan network to discover Oelo controller IP address
+- **`stopScan()`**: Stop the controller discovery scan
 
 ### Using Pattern Selection
 
@@ -96,7 +296,7 @@ The driver provides the following commands:
    - Save preferences
 
 2. **Execute Command**:
-   - Use `setPattern()` command to apply selected pattern
+   - Use `applyPattern()` command to apply selected pattern
    - Commands appear in device tile or can be called from automations
 
 ### Patterns
@@ -108,7 +308,7 @@ Capture and save patterns created/edited in the Oelo app:
 2. **Set Pattern on Controller**: Apply the pattern to your zone using the Oelo app
 3. **Capture in Hubitat**: Use the `getPattern()` command to capture the current pattern from the controller
 4. **Pattern Saved**: The pattern is automatically saved with a stable ID (generated from pattern type and parameters) and an initial display name
-5. **Use Saved Pattern**: Select the captured pattern from **Pattern Selection** dropdown and use `setPattern()` command
+5. **Use Saved Pattern**: Select the captured pattern from **Pattern Selection** dropdown and use `applyPattern()` command
 
 **Pattern Types:**
 
@@ -132,20 +332,20 @@ The driver supports two types of patterns:
   - Cannot be changed (stays stable even if pattern is renamed)
 - **Pattern Name**: Display name shown in dropdowns (initially same as ID, but editable)
   - Can be renamed via **Select Pattern to Rename** and **New Pattern Name** preferences
-  - Renaming doesn't affect the pattern ID or prevent duplicates
+  - Renaming doesn't affect the pattern ID
 - **Plan Type**: Automatically detected and stored (spotlight or non-spotlight)
   - Shown in pattern lists and dropdowns for easy identification
-  - Existing patterns without plan type are automatically evaluated when first used
 
 **Pattern Management:**
 - Up to **200 patterns** can be stored per device
-- **Duplicate Prevention**: If a pattern with the same ID already exists, it will be updated with new parameters (keeps your custom name if you renamed it)
+- **Duplicate Prevention**: Patterns with identical parameters are automatically treated as the same pattern
 - **Rename Patterns**: Use **Select Pattern to Rename** dropdown and **New Pattern Name** text field in device preferences, then save
 - **Delete Patterns**: Use the **Delete Pattern** dropdown in device preferences, then save
 - Patterns appear in **Pattern Selection** dropdown for easy selection
 - Pattern type is displayed alongside pattern name (e.g., "My Pattern [spotlight]")
 
 **Spotlight Plan Customization:**
+The Oelo controller only returns 40 lights from the getController command.  As a result, spotlight plans are not fully represented in the response.  To counter this limitation, the Spotlight Plan Lights can be set with a list of the lights that should be turned on.  
 
 For spotlight plans, you can customize which LEDs are active:
 
@@ -157,14 +357,7 @@ For spotlight plans, you can customize which LEDs are active:
 3. **Automatic Modification**: When you use a spotlight plan, only the LEDs specified in **Spotlight Plan Lights** will be turned on, using the colors from the original captured pattern
 4. **Setting Changes**: If you change **Spotlight Plan Lights**, all saved spotlight plans are automatically updated to use the new LED list
 
-**Pattern Validation:**
-
-All captured patterns are validated before being saved:
-- Colors string validation (correct number of RGB triplets, valid RGB values)
-- Complete pattern URL validation (all required parameters present, valid ranges)
-- Full string logged if validation fails for debugging
-
-**Note**: The Oelo app is the primary tool for creating and editing patterns. Hubitat captures these patterns so they can be reused in automations and scenes. The pattern ID ensures that patterns with identical parameters are treated as the same pattern, even if you rename them.
+**Note**: The Oelo app is the primary tool for creating and editing patterns. Hubitat captures these patterns so they can be reused in automations and scenes. All captured patterns are validated before being saved to ensure reliability.
 
 ### Example Automations
 
@@ -173,7 +366,7 @@ All captured patterns are validated before being saved:
 - In Hubitat, use `getPattern()` command to capture the pattern
 - Create Rule Machine rule
 - Trigger: Sunset
-- Action: Call `setPattern()` command (after selecting the captured pattern in preferences)
+- Action: Call `applyPattern()` command (after selecting the captured pattern in preferences)
 
 **Example 2: Turn off lights at midnight**
 - Create Rule Machine rule
@@ -190,12 +383,31 @@ All captured patterns are validated before being saved:
 ### "Controller IP address not configured"
 - **Solution**: Enter IP address in device preferences → Controller Settings
 
+### "Invalid zone number"
+- **Solution**: Zone number must be 1-6
+
 ### "Cannot connect to controller"
-- Verify IP address is correct
-- Check controller is powered on and connected to network
-- Verify Hubitat and controller are on same network
-- Test connectivity: `ping <controller-ip>`
-- Check firewall rules
+- **Possible causes:**
+  - Incorrect IP address
+  - Controller is offline
+  - Network connectivity issues
+  - Firewall blocking connection
+  - Controller on different network/VLAN
+- **Solutions:**
+  - Verify IP address is correct
+  - Ping controller: `ping Controller_IP_Address`
+  - Check controller is powered on
+  - Verify Hubitat and controller are on same network
+  - Check firewall rules
+
+### "Device responded but doesn't appear to be an Oelo controller"
+- **Possible causes:**
+  - IP address points to different device
+  - Controller firmware version incompatible
+- **Solutions:**
+  - Verify correct IP address
+  - Test manually: `curl http://{IP}/getController`
+  - Should return JSON array
 
 ### Patterns not appearing in dropdown
 - Ensure patterns have been captured using `getPattern()` command
@@ -214,45 +426,19 @@ All captured patterns are validated before being saved:
 - Try `refresh()` command
 - Check Hubitat logs for connection errors
 
-## Attributes
+## Attributes & Capabilities
 
-The driver exposes the following attributes:
-
-- `zone`: Zone number (1-6)
-- `controllerIP`: Controller IP address
-- `lastCommand`: Last command URL sent
-- `currentPattern`: Current pattern string from controller (e.g., "march", "off", "custom")
-- `effectName`: Current pattern name if it matches a saved pattern (empty if not found or off)
-- `availablePatterns`: Comma-separated list of all saved patterns with their plan types
-- `verificationStatus`: Command verification status (if enabled)
-- `driverVersion`: Current driver version
-- `switch`: Current switch state ("on" or "off")
-
-## Capabilities
-
-- `Refresh`: Standard Hubitat refresh capability
+The driver exposes various attributes for monitoring device state and includes the `Switch` capability for use in automations. See the driver code documentation for complete technical details.
 
 ## Requirements
 
 - Hubitat Elevation hub (firmware 2.1.9 or later)
 - Oelo Lights controller on local network
-- Controller IP address (must be manually entered)
-
-## Protocol
-
-The driver communicates with Oelo controllers via HTTP REST API:
-
-- **Status**: `GET http://{IP}/getController` - Returns JSON array of zone statuses
-- **Commands**: `GET http://{IP}/setPattern?{params}` - Sets pattern/color for zones
-
-See [PROTOCOL_SUMMARY.md](./PROTOCOL_SUMMARY.md) for detailed protocol documentation.
+- Controller IP address (can be manually entered or discovered via `scanForController()`)
 
 ## Additional Documentation
 
-- [CONFIGURATION.md](./CONFIGURATION.md) - Complete configuration guide
-- [PROTOCOL_SUMMARY.md](./PROTOCOL_SUMMARY.md) - Protocol details
-- [VALIDATION.md](./VALIDATION.md) - Driver validation guidelines
-- [PUBLISHING.md](./PUBLISHING.md) - Publishing information
+For technical implementation details, protocol specifications, and developer information, see the code documentation in the driver file header.
 
 ## License
 
@@ -270,16 +456,3 @@ For issues, questions, or contributions:
 - **GitHub Issues**: [Report an issue](https://github.com/curtiside/oelo-lights-hubitat/issues)
 - **Hubitat Community**: [Hubitat Community Forum](https://community.hubitat.com)
 
-## Version History
-
-### Version 0.9.0 (Current)
-- Pattern capture and management: Capture up to 200 patterns from the Oelo controller
-- Pattern types: Automatic detection of spotlight vs non-spotlight plans
-- Pattern management: Rename and delete patterns via device preferences
-- Pattern validation: Full validation ensures captured patterns are valid before saving
-- Spotlight plan support: Customize which LEDs are active in spotlight patterns to deal with 40 light getController issue
-- Auto-polling: Configurable automatic status polling
-- Command verification: Optional feature (disabled by default) that polls the controller after sending commands to verify they were applied successfully
-
-### Previous Versions
-See [packageManifest.json](./packageManifest.json) for complete version history and release notes.
