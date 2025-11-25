@@ -254,11 +254,9 @@ metadata {
                 options: getPatternOptions(), 
                 required: false, defaultValue: "", submitOnChange: true,
                 description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
-            if (settings && settings.renamePattern && settings.renamePattern != "") {
-                input name: "newPatternName", type: "text", title: "New Pattern Name", 
-                    required: false, defaultValue: "", submitOnChange: true,
-                    description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
-            }
+            input name: "newPatternName", type: "text", title: "New Pattern Name", 
+                required: false, defaultValue: "", submitOnChange: true,
+                description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
             input name: "deletePattern", type: "enum", title: "Delete Pattern", 
                 options: getPatternOptions(), 
                 required: false, defaultValue: "", submitOnChange: true,
