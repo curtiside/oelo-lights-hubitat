@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../hubitatpackagemanager"
+		},
+		{
+			"path": "../hubitat-packagerepositories"
 		}
 	],
 	"settings": {}

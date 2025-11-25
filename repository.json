@@ -1,0 +1,10 @@
+{
+  "author": "curtiside",
+  "gitHubUrl": "https://github.com/curtiside/oelo-lights-hubitat",
+  "packages": [{
+    "name": "Oelo Lights",
+    "category": "Integrations",
+    "location": "https://raw.githubusercontent.com/curtiside/oelo-lights-hubitat/main/packageManifest.json",
+    "description": "Driver for Oelo permanent outdoor lighting"
+  }]
+}
