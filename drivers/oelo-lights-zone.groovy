@@ -360,24 +360,6 @@ def updated() {
                 
                 // Track the renamed pattern to prevent deletion in same update cycle
                 renamedPatternName = newPatternName
-                
-                // Update selectedPattern if it was the renamed pattern
-                if (settings.selectedPattern == oldPatternName) {
-                    try {
-                        device.updateSetting("selectedPattern", [value: newPatternName, type: "enum"])
-                        log.info "Updated selectedPattern from '${oldPatternName}' to '${newPatternName}'"
-                    } catch (Exception e) {
-                        debugLog "Could not update selectedPattern: ${e.message}"
-                    }
-                }
-                
-                // Clear the rename dropdown fields to trigger refresh
-                try {
-                    device.updateSetting("renamePattern", [value: "", type: "enum"])
-                    device.updateSetting("newPatternName", [value: "", type: "text"])
-                } catch (Exception e) {
-                    debugLog "Could not clear rename fields: ${e.message}"
-                }
             }
         }
         
@@ -420,22 +402,8 @@ def updated() {
                 log.info "Deleted pattern '${patternName}' and compacted list"
                 updateAvailablePatternsAttribute()
                 
-                // Clear selectedPattern if it was the deleted pattern
-                if (settings.selectedPattern == patternName) {
-                    try {
-                        device.updateSetting("selectedPattern", [value: "", type: "enum"])
-                        log.info "Cleared selectedPattern because the selected pattern was deleted"
-                    } catch (Exception e) {
-                        debugLog "Could not clear selectedPattern: ${e.message}"
-                    }
-                }
-                
-                // Clear the delete dropdown field to trigger refresh
-                try {
-                    device.updateSetting("deletePattern", [value: "", type: "enum"])
-                } catch (Exception e) {
-                    debugLog "Could not clear delete field: ${e.message}"
-                }
+                // Clear the delete field after processing
+                state.clearDeleteField = true
                 
                 // Clear the delete field after processing
                 state.clearDeleteField = true
