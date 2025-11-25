@@ -245,19 +245,24 @@ metadata {
             input name: "separator0", type: "paragraph", title: "───────── Pattern Selection ─────────", description: ""
             input name: "selectedPattern", type: "enum", title: "Select Pattern", 
                 options: getPatternOptions(), 
-                required: false, description: "Choose a pattern to set"
+                required: false, submitOnChange: true, description: "Choose a pattern to set"
             input name: "separator1", type: "paragraph", title: "───────── Pattern Management ─────────", description: ""
         }
         
         section("Pattern Management") {
             input name: "renamePattern", type: "enum", title: "Select Pattern to Rename", 
                 options: getPatternOptions(), 
-                required: false, defaultValue: "", description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
-            input name: "newPatternName", type: "text", title: "New Pattern Name", 
-                required: false, defaultValue: "", description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
+                required: false, defaultValue: "", submitOnChange: true,
+                description: "Select a pattern to rename${state.lastCapturedPatternName ? " (Most recent: ${state.lastCapturedPatternName})" : ""}"
+            if (settings.renamePattern && settings.renamePattern != "") {
+                input name: "newPatternName", type: "text", title: "New Pattern Name", 
+                    required: false, defaultValue: "", submitOnChange: true,
+                    description: "Enter new name for the selected pattern (pattern will be renamed when preferences are saved)"
+            }
             input name: "deletePattern", type: "enum", title: "Delete Pattern", 
                 options: getPatternOptions(), 
-                required: false, defaultValue: "", description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
+                required: false, defaultValue: "", submitOnChange: true,
+                description: "Select a pattern to delete (pattern will be deleted when preferences are saved)"
         }
         
         section("Controller Settings") {
