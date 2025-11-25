@@ -320,6 +320,9 @@ def updated() {
     // each device instance maintains its own separate settings. Users should
     // manually enter values in preferences.
     
+    // Track if a rename happened to prevent deleting the newly renamed pattern
+    def renamedPatternName = null
+    
     // Handle pattern renaming if renamePattern and newPatternName preferences were set
     if (settings.renamePattern && settings.renamePattern != "" && settings.newPatternName && settings.newPatternName.trim() != "") {
         def oldPatternName = settings.renamePattern
@@ -337,18 +340,21 @@ def updated() {
             debugLog "Pattern '${oldPatternName}' already has name '${newPatternName}', skipping rename action"
         } else {
             log.warn "Preference action: Renaming pattern '${oldPatternName}' to '${newPatternName}'"
-        log.info "Renaming pattern: '${oldPatternName}' to '${newPatternName}'"
-        
-        // Check if new name already exists (and it's not the same pattern)
-        def nameExists = patterns.find { it && it.name == newPatternName && it != patternToRename }
-        if (nameExists) {
-            log.warn "Cannot rename: Pattern name '${newPatternName}' already exists"
-        } else {
-            patternToRename.name = newPatternName
-            state.patterns = patterns
-            log.info "Renamed pattern '${oldPatternName}' to '${newPatternName}'"
-            updateAvailablePatternsAttribute()
-        }
+            log.info "Renaming pattern: '${oldPatternName}' to '${newPatternName}'"
+            
+            // Check if new name already exists (and it's not the same pattern)
+            def nameExists = patterns.find { it && it.name == newPatternName && it != patternToRename }
+            if (nameExists) {
+                log.warn "Cannot rename: Pattern name '${newPatternName}' already exists"
+            } else {
+                patternToRename.name = newPatternName
+                state.patterns = patterns
+                log.info "Renamed pattern '${oldPatternName}' to '${newPatternName}'"
+                updateAvailablePatternsAttribute()
+                
+                // Track the renamed pattern to prevent deletion in same update cycle
+                renamedPatternName = newPatternName
+            }
         }
         
         // Clear the rename fields after processing
@@ -358,36 +364,43 @@ def updated() {
     // Handle pattern deletion if deletePattern preference was set
     if (settings.deletePattern && settings.deletePattern != "") {
         def patternName = settings.deletePattern
-        log.warn "Preference action: Deleting pattern '${patternName}'"
-        log.info "Deleting pattern: ${patternName}"
         
-        def patterns = state.patterns ?: []
-        def indexToDelete = -1
-        
-        // Find pattern to delete
-        for (int i = 0; i < patterns.size(); i++) {
-            if (patterns[i] && patterns[i].name == patternName) {
-                indexToDelete = i
-                break
-            }
-        }
-        
-        if (indexToDelete != -1) {
-            // Remove pattern and compact list
-            patterns.remove(indexToDelete)
-            // Remove trailing nulls
-            while (patterns.size() > 0 && patterns[patterns.size() - 1] == null) {
-                patterns.remove(patterns.size() - 1)
-            }
-            
-            state.patterns = patterns
-            log.info "Deleted pattern '${patternName}' and compacted list"
-            updateAvailablePatternsAttribute()
-            
-            // Clear the delete field after processing
+        // Prevent deleting a pattern that was just renamed in this update cycle
+        if (renamedPatternName && patternName == renamedPatternName) {
+            log.warn "Skipping deletion of pattern '${patternName}' - it was just renamed in this update cycle"
             state.clearDeleteField = true
         } else {
-            log.warn "Pattern '${patternName}' not found for deletion"
+            log.warn "Preference action: Deleting pattern '${patternName}'"
+            log.info "Deleting pattern: ${patternName}"
+            
+            def patterns = state.patterns ?: []
+            def indexToDelete = -1
+            
+            // Find pattern to delete
+            for (int i = 0; i < patterns.size(); i++) {
+                if (patterns[i] && patterns[i].name == patternName) {
+                    indexToDelete = i
+                    break
+                }
+            }
+            
+            if (indexToDelete != -1) {
+                // Remove pattern and compact list
+                patterns.remove(indexToDelete)
+                // Remove trailing nulls
+                while (patterns.size() > 0 && patterns[patterns.size() - 1] == null) {
+                    patterns.remove(patterns.size() - 1)
+                }
+                
+                state.patterns = patterns
+                log.info "Deleted pattern '${patternName}' and compacted list"
+                updateAvailablePatternsAttribute()
+                
+                // Clear the delete field after processing
+                state.clearDeleteField = true
+            } else {
+                log.warn "Pattern '${patternName}' not found for deletion"
+            }
         }
     }
     
