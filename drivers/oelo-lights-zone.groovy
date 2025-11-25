@@ -208,7 +208,7 @@
  */
 
 // Constants
-final String DRIVER_VERSION = "0.9.2"  // Driver version
+final String DRIVER_VERSION = "0.9.3"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
@@ -1976,10 +1976,15 @@ def getPatternOptions() {
             if (pattern && pattern.name) {
                 // Show pattern ID in parentheses instead of planType
                 def patternIdDisplay = pattern.id ? " (${pattern.id})" : ""
+                // Safely get planType without modifying state during metadata parsing
+                def planType = pattern.planType
+                if (!planType && pattern.urlParams?.patternType) {
+                    planType = identifyPlanType(pattern.urlParams.patternType.toString())
+                }
                 patterns.add([
                     name: pattern.name,
                     display: "${pattern.name}${patternIdDisplay}",
-                    planType: ensurePlanType(pattern).planType ?: "non-spotlight"
+                    planType: planType ?: "non-spotlight"
                 ])
             }
         }

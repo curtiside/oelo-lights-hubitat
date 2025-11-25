@@ -2,9 +2,9 @@
 	"packageName": "Oelo Lights",
 	"minimumHEVersion": "2.1.9",
 	"author": "Curtis Ide",
-	"version": "0.9.2",
+	"version": "0.9.3",
 	"dateReleased": "2024-12-20",
-	"releaseNotes": "Version 0.9.2 Changes:\n- Pattern dropdown: Now displays stable pattern ID in parentheses instead of planType\n- Pattern ID enhancement: Stable pattern ID now includes first non-zero RGB color values for better pattern identification",
+	"releaseNotes": "Version 0.9.3 Changes:\n- Fixed pattern lookup issue: Resolved bug where patterns couldn't be found after renaming due to state access during dropdown building\n- Pattern dropdown: Now displays stable pattern ID in parentheses instead of planType\n- Pattern ID enhancement: Stable pattern ID now includes first non-zero RGB color values for better pattern identification",
 	"drivers": [
 		{
 			"id": "417b0ec8-6c1f-49f3-9084-1fdb101eab3a",
