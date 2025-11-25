@@ -208,7 +208,7 @@
  */
 
 // Constants
-final String DRIVER_VERSION = "0.9.1"  // Driver version
+final String DRIVER_VERSION = "0.9.2"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
@@ -1231,6 +1231,29 @@ def getPattern() {
             suffixParts.add("${zoneData.numberOfColors}colors")
         }
         
+        // Add first non-zero color RGB values to pattern ID
+        if (urlParams.colors && urlParams.colors.toString().trim() != "") {
+            def colorParts = urlParams.colors.toString().split(",")
+            // Find first non-zero RGB triplet
+            for (int i = 0; i < colorParts.size() - 2; i += 3) {
+                def r = colorParts[i]?.trim() ?: "0"
+                def g = colorParts[i + 1]?.trim() ?: "0"
+                def b = colorParts[i + 2]?.trim() ?: "0"
+                // Check if this is a non-zero color
+                try {
+                    def rVal = r.toInteger()
+                    def gVal = g.toInteger()
+                    def bVal = b.toInteger()
+                    if (rVal != 0 || gVal != 0 || bVal != 0) {
+                        suffixParts.add("rgb${r}-${g}-${b}")
+                        break  // Found first non-zero color, stop searching
+                    }
+                } catch (NumberFormatException e) {
+                    // Skip invalid RGB values and continue searching
+                }
+            }
+        }
+        
         // Build stable ID from pattern type and parameters (no timestamp, no zone - device is zone-specific)
         if (suffixParts.isEmpty()) {
             patternId = pattern.toString()
@@ -1951,13 +1974,12 @@ def getPatternOptions() {
         def storedPatterns = state.patterns ?: []
         storedPatterns.each { pattern ->
             if (pattern && pattern.name) {
-                // Ensure planType exists (lazy evaluation)
-                def plan = ensurePlanType(pattern)
-                def planTypeDisplay = plan.planType ? " [${plan.planType}]" : ""
+                // Show pattern ID in parentheses instead of planType
+                def patternIdDisplay = pattern.id ? " (${pattern.id})" : ""
                 patterns.add([
                     name: pattern.name,
-                    display: "${pattern.name}${planTypeDisplay}",
-                    planType: plan.planType ?: "non-spotlight"
+                    display: "${pattern.name}${patternIdDisplay}",
+                    planType: ensurePlanType(pattern).planType ?: "non-spotlight"
                 ])
             }
         }
@@ -1965,9 +1987,9 @@ def getPatternOptions() {
         // state not available during metadata parsing - that's OK
     }
     
-    // Add patterns (sorted by name, but display includes planType)
+    // Add patterns (sorted by name, but display includes pattern ID)
     patterns.sort { it.name }.each { pattern ->
-        options[pattern.name] = pattern.display  // Key is name, value is display with planType
+        options[pattern.name] = pattern.display  // Key is name, value is display with pattern ID
     }
     
     return options
