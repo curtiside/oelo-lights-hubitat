@@ -1969,32 +1969,44 @@ def getPatternOptions() {
     options[""] = "-- Select Pattern --"
     
     // Patterns from state (stored patterns)
-    def patterns = []
+    def patternEntries = []
     try {
         def storedPatterns = state.patterns ?: []
         storedPatterns.each { pattern ->
-            if (pattern && pattern.name) {
-                // Show pattern ID in parentheses instead of planType
-                def patternIdDisplay = pattern.id ? " (${pattern.id})" : ""
-                // Safely get planType without modifying state during metadata parsing
-                def planType = pattern.planType
-                if (!planType && pattern.urlParams?.patternType) {
-                    planType = identifyPlanType(pattern.urlParams.patternType.toString())
+            try {
+                if (pattern && pattern.name) {
+                    // Show pattern ID in parentheses instead of planType
+                    def patternIdDisplay = ""
+                    try {
+                        if (pattern.id) {
+                            patternIdDisplay = " (${pattern.id})"
+                        }
+                    } catch (Exception e) {
+                        // Skip if id access fails
+                    }
+                    
+                    // Build display string
+                    def displayName = "${pattern.name}${patternIdDisplay}"
+                    patternEntries.add([name: pattern.name, display: displayName])
                 }
-                patterns.add([
-                    name: pattern.name,
-                    display: "${pattern.name}${patternIdDisplay}",
-                    planType: planType ?: "non-spotlight"
-                ])
+            } catch (Exception e) {
+                // Skip individual pattern if there's an error accessing it
             }
         }
     } catch (Exception e) {
         // state not available during metadata parsing - that's OK
     }
     
-    // Add patterns (sorted by name, but display includes pattern ID)
-    patterns.sort { it.name }.each { pattern ->
-        options[pattern.name] = pattern.display  // Key is name, value is display with pattern ID
+    // Sort by name and add to options
+    try {
+        patternEntries.sort { it.name }.each { entry ->
+            options[entry.name] = entry.display
+        }
+    } catch (Exception e) {
+        // If sorting fails, add unsorted
+        patternEntries.each { entry ->
+            options[entry.name] = entry.display
+        }
     }
     
     return options
