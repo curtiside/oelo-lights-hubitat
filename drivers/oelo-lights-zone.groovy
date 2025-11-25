@@ -267,7 +267,8 @@ metadata {
         
         section("Controller Settings") {
             input name: "separator2", type: "paragraph", title: "───────── Controller Settings ─────────", description: ""
-            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, description: "IP address of Oelo controller${state.discoveredControllerIP ? " (Discovered: ${state.discoveredControllerIP})" : ""}"
+            input name: "controllerIP", type: "text", title: "Controller IP Address", required: true, 
+                description: "IP address of Oelo controller${state.discoveredControllerIP ? "\n\n✅ DISCOVERED: ${state.discoveredControllerIP}\n(Refresh page to see it in the field above)" : ""}"
             input name: "scanSubnet", type: "text", title: "Subnet to Scan (for discovery)", required: false, defaultValue: "", description: "Subnet prefix to scan (e.g., '192.168.1' or '10.16.1'). Leave empty to auto-detect from Hubitat hub subnet or try common subnets."
             input name: "zoneNumber", type: "number", title: "Zone Number", range: "1..6", required: true, defaultValue: 1, description: "Zone number (1-6)"
         }
@@ -359,6 +360,24 @@ def updated() {
                 
                 // Track the renamed pattern to prevent deletion in same update cycle
                 renamedPatternName = newPatternName
+                
+                // Update selectedPattern if it was the renamed pattern
+                if (settings.selectedPattern == oldPatternName) {
+                    try {
+                        device.updateSetting("selectedPattern", [value: newPatternName, type: "enum"])
+                        log.info "Updated selectedPattern from '${oldPatternName}' to '${newPatternName}'"
+                    } catch (Exception e) {
+                        debugLog "Could not update selectedPattern: ${e.message}"
+                    }
+                }
+                
+                // Clear the rename dropdown fields to trigger refresh
+                try {
+                    device.updateSetting("renamePattern", [value: "", type: "enum"])
+                    device.updateSetting("newPatternName", [value: "", type: "text"])
+                } catch (Exception e) {
+                    debugLog "Could not clear rename fields: ${e.message}"
+                }
             }
         }
         
@@ -400,6 +419,23 @@ def updated() {
                 state.patterns = patterns
                 log.info "Deleted pattern '${patternName}' and compacted list"
                 updateAvailablePatternsAttribute()
+                
+                // Clear selectedPattern if it was the deleted pattern
+                if (settings.selectedPattern == patternName) {
+                    try {
+                        device.updateSetting("selectedPattern", [value: "", type: "enum"])
+                        log.info "Cleared selectedPattern because the selected pattern was deleted"
+                    } catch (Exception e) {
+                        debugLog "Could not clear selectedPattern: ${e.message}"
+                    }
+                }
+                
+                // Clear the delete dropdown field to trigger refresh
+                try {
+                    device.updateSetting("deletePattern", [value: "", type: "enum"])
+                } catch (Exception e) {
+                    debugLog "Could not clear delete field: ${e.message}"
+                }
                 
                 // Clear the delete field after processing
                 state.clearDeleteField = true
@@ -913,7 +949,9 @@ def scanNextIP() {
                 // Automatically update the controllerIP preference
                 try {
                     device.updateSetting("controllerIP", [value: ip, type: "text"])
-                    log.info "Controller IP address automatically updated to: ${ip}"
+                    log.info "✅ Controller IP address automatically updated to: ${ip}"
+                    log.info "📝 NOTE: Refresh the device preferences page to see the updated IP address in the field."
+                    log.info "The device will work immediately with the discovered IP address."
                     log.info "Device will be re-initialized with the new IP address."
                     
                     // Re-initialize the device to use the new IP address
