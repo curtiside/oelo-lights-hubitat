@@ -279,6 +279,7 @@ The driver provides the following commands (ordered as they appear in Hubitat):
 - **`on()`**: Turn on lights using the last used pattern or selected pattern
 - **`off()`**: Turn off the lights
 - **`applyPattern()`**: Apply pattern chosen from Pattern Selection dropdown
+- **`onAndApplyPattern(patternName)`**: Turn on and apply pattern in one action (for rule engines - pattern must be captured first via `getPattern()`, pattern name must match exactly)
 - **`getPattern()`**: Capture the current pattern from the controller and save it
 - **`refresh()`**: Get current state from controller
 - **`scanForController()`**: Scan network to discover Oelo controller IP address
@@ -374,6 +375,15 @@ For spotlight plans, you can customize which LEDs are active:
 - Use `getPattern()` command in Hubitat to save it
 - The pattern is now available in the Pattern Selection dropdown for use in automations
 
+**Example 4: Turn on and apply pattern in Rule Machine**
+- **Important:** Pattern must be captured first using `getPattern()` command
+- Pattern name must match exactly (case-sensitive) the saved pattern name
+- In Rule Machine, add action: "Run Custom Action"
+- Select your Oelo device
+- Choose `onAndApplyPattern` command
+- Enter pattern name in the parameter field (e.g., "Christmas March") - must match saved pattern name exactly
+- The device will turn on and apply the specified pattern
+
 ## Troubleshooting
 
 ### "Controller IP address not configured"
@@ -444,6 +454,7 @@ MIT License
 
 - Based on [Oelo Lights Home Assistant Integration](https://github.com/Cinegration/Oelo_Lights_HA)
 - Original Python implementation by Cinegration
+- Protocol documentation based on reverse engineering the Oelo controller's HTTP API
 
 ## Support
 

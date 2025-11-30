@@ -126,7 +126,7 @@
  * 
  * See README.md for user-facing command documentation.
  * 
- * **Available Commands:** `on()`, `off()`, `applyPattern()`, `getPattern()`, `refresh()`, `scanForController()`, `stopScan()`
+ * **Available Commands:** `on()`, `off()`, `applyPattern()`, `onAndApplyPattern(patternName)`, `getPattern()`, `refresh()`, `scanForController()`, `stopScan()`
  * 
  * ## Pattern Implementation
  * 
@@ -159,13 +159,16 @@
  * - `lastCommand`: Last command URL sent
  * - `currentPattern`: Current pattern string from controller (e.g., "march", "off", "custom")
  * - `effectName`: Current pattern name if it matches a saved pattern (empty if not found or off)
+ * - `pattern`: Current pattern name (enum) - updated when patterns are applied, used by rule engines
  * - `verificationStatus`: Command verification status (if enabled)
  * - `driverVersion`: Current driver version
  * - `switch`: Current switch state ("on" or "off")
+ * - `availablePatterns`: Comma-separated list of available pattern names
  * 
  * ## Capabilities
  * 
  * - `Switch`: Standard Hubitat switch capability (provides `on()` and `off()` commands)
+ * - `Actuator`: Enables custom commands to appear in rule engines
  * - `Refresh`: Standard Hubitat refresh capability
  * 
  * ## Command Verification
@@ -201,6 +204,8 @@
  * ## References
  * 
  * - Based on Oelo Lights Home Assistant integration: https://github.com/Cinegration/Oelo_Lights_HA
+ * - Original Python implementation by Cinegration
+ * - Protocol documentation based on reverse engineering the Oelo controller's HTTP API
  * - Hubitat Developer Documentation: https://docs2.hubitat.com/en/developer/overview
  * - See README.md and DRIVER_PLAN.md for additional documentation
  * 
@@ -208,7 +213,7 @@
  */
 
 // Constants
-final String DRIVER_VERSION = "1.0.1"  // Driver version
+final String DRIVER_VERSION = "1.0.2"  // Driver version
 final int MAX_LEDS = 500  // Maximum number of LEDs per zone
 final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,35,36,37,38,59,60,61,62,67,68,69,70,93,94,95,112,113,114,115,132,133,134,135,153,154,155,156"
 
@@ -217,6 +222,7 @@ final String DEFAULT_SPOTLIGHT_PLAN_LIGHTS = "1,2,3,4,8,9,10,11,21,22,23,24,25,3
 metadata {
     definition(name: "Oelo Lights Zone", namespace: "pizzaman383", author: "Curtis Ide", importUrl: "") {
         capability "Switch"
+        capability "Actuator"
         
         // Custom attributes
         attribute "zone", "number"
@@ -229,11 +235,13 @@ metadata {
         attribute "switch", "string"
         attribute "availablePatterns", "string"
         attribute "discoveredControllerIP", "string"
+        attribute "pattern", "enum"
         
         // Custom commands (ordered as requested)
         command "on"
         command "off"
         command "applyPattern"
+        command "onAndApplyPattern", [[name: "pattern", type: "STRING"]]
         command "getPattern"
         command "refresh"
         command "scanForController"
@@ -655,6 +663,8 @@ def off() {
     // Note: Event updates and verification will happen in sendCommand callback
     // For immediate feedback, we'll update switch optimistically
     sendEvent(name: "switch", value: "off")
+    sendEvent(name: "pattern", value: "")
+    sendEvent(name: "effectName", value: "")
 }
 
 // Internal function: Set effect (used by applyPattern command)
@@ -707,6 +717,7 @@ def setEffect(String effectName) {
     
     // Optimistic updates for immediate feedback
     sendEvent(name: "effectName", value: effectName)
+    sendEvent(name: "pattern", value: effectName)
     sendEvent(name: "lastCommand", value: patternUrl)
     sendEvent(name: "switch", value: "on")
     state.lastUsedPattern = effectName  // Store for on() command
@@ -762,21 +773,47 @@ def verifyPatternSetCallback(data) {
     }
 }
 
-// Custom command: Apply pattern (supports both parameterized and preference-based)
+// Custom command: Apply pattern (supports parameterized, attribute-based, and preference-based)
 def applyPattern(String patternName = null) {
     log.warn "applyPattern() command called${patternName ? " with pattern: ${patternName}" : ""}"
     
-    // If patternName parameter provided, use it; otherwise use preference selection
-    def selectedPattern = patternName ?: settings.selectedPattern
+    // Priority: 1) parameter, 2) pattern attribute, 3) preference selection
+    def selectedPattern = patternName ?: device.currentValue("pattern") ?: settings.selectedPattern
     
     if (!selectedPattern || selectedPattern == "") {
-        log.warn "No pattern specified. Please provide a pattern name as parameter or select a pattern from Preferences → Pattern Selection section first."
+        log.warn "No pattern specified. Please provide a pattern name as parameter, set the pattern attribute, or select a pattern from Preferences → Pattern Selection section first."
         log.warn "Available patterns: ${buildEffectList()}"
         return
     }
     
     log.info "Setting pattern: ${selectedPattern}"
+    
+    // Update the pattern attribute
+    sendEvent(name: "pattern", value: selectedPattern)
+    
+    // Apply the pattern
     setEffect(selectedPattern)
+}
+
+// Custom command: Turn on and apply pattern (combined action for rule engines)
+// Combines turning device on and applying pattern in one action for Rule Machine.
+// Usage: Rule Machine → Run Custom Action → select device → onAndApplyPattern → enter pattern name in parameter field
+def onAndApplyPattern(String patternName) {
+    log.warn "onAndApplyPattern() command called with pattern: ${patternName}"
+    
+    if (!patternName || patternName == "") {
+        log.warn "No pattern specified for onAndApplyPattern(). Please provide a pattern name."
+        log.warn "Available patterns: ${buildEffectList()}"
+        return
+    }
+    
+    log.info "Turning on and applying pattern: ${patternName}"
+    
+    // Update the pattern attribute
+    sendEvent(name: "pattern", value: patternName)
+    
+    // Turn on and apply the pattern (setEffect already sets switch to "on")
+    setEffect(patternName)
 }
 
 // Custom command: Discover Oelo controller on network
@@ -2077,6 +2114,23 @@ def getPatternOptionsForCommand() {
     return options
 }
 
+// Get pattern names as a list for enum constraints (used by setPattern command)
+def getPatternNamesForEnum() {
+    def patternNames = []
+    try {
+        def storedPatterns = state.patterns ?: []
+        storedPatterns.each { pattern ->
+            if (pattern && pattern.name) {
+                patternNames.add(pattern.name)
+            }
+        }
+    } catch (Exception e) {
+        // state not available during metadata parsing - return empty list
+    }
+    
+    return patternNames.sort()
+}
+
 // Update availablePatterns attribute with current pattern list (includes planType)
 def updateAvailablePatternsAttribute() {
     def patterns = state.patterns ?: []
@@ -2536,6 +2590,7 @@ def updateStateFromVerification(Map zoneState) {
         def effectName = findEffectName(zoneState.pattern)
         if (effectName) {
             sendEvent(name: "effectName", value: effectName)
+            sendEvent(name: "pattern", value: effectName)
         }
     }
 }
@@ -2830,6 +2885,11 @@ def updateZoneState(Map zoneData) {
     
     // Always set effectName (null if not found or off)
     sendEvent(name: "effectName", value: effectName ?: "")
+    
+    // Update pattern attribute if effectName was found
+    if (effectName) {
+        sendEvent(name: "pattern", value: effectName)
+    }
     
     debugLog "=== END UPDATE ZONE STATE DEBUG ==="
 }
