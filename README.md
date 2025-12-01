@@ -444,6 +444,8 @@ The driver exposes various attributes for monitoring device state and includes t
 
 ## Additional Documentation
 
+- **[Interactive Configuration Guide](https://curtiside.github.io/oelo-lights-hubitat/)** - Step-by-step visual guide with screenshots for installing, configuring, and using the driver
+
 For technical implementation details, protocol specifications, and developer information, see the code documentation in the driver file header.
 
 ## License

@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oelo Lights Hubitat Integration - Configuration Guide</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 2rem;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            margin: -2rem -2rem 2rem -2rem;
+            border-radius: 0;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        h2 {
+            color: #667eea;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        h3 {
+            color: #764ba2;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        h4 {
+            color: #555;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        p {
+            margin-bottom: 1rem;
+        }
+        
+        ul, ol {
+            margin-left: 2rem;
+            margin-bottom: 1rem;
+        }
+        
+        li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .screenshot {
+            margin: 1.5rem 0;
+            text-align: center;
+        }
+        
+        .screenshot img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .screenshot-caption {
+            margin-top: 0.5rem;
+            font-style: italic;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .feature-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .critical-box {
+            background-color: #f8d7da;
+            border-left: 6px solid #dc3545;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
+        }
+        
+        .critical-box h4 {
+            color: #dc3545;
+            margin-top: 0;
+            margin-bottom: 0.75rem;
+            font-size: 1.2rem;
+        }
+        
+        .info-box {
+            background-color: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        code {
+            background-color: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background-color: #f4f4f4;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.75rem;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #667eea;
+            color: white;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .step-number {
+            display: inline-block;
+            background-color: #667eea;
+            color: white;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 2rem;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+        
+        .toc {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 4px;
+            margin: 2rem 0;
+        }
+        
+        .toc ul {
+            list-style-type: none;
+            margin-left: 0;
+        }
+        
+        .toc a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        
+        footer {
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Oelo Lights Hubitat Integration</h1>
+            <p class="subtitle">Complete Configuration and Usage Guide</p>
+        </header>
+        
+        <div class="feature-box">
+            <h3>Key Features</h3>
+            <ul>
+                <li><strong>Multi-Zone Control:</strong> Control up to 6 independent zones (requires separate virtual device per zone)</li>
+                <li><strong>Pattern Capture:</strong> Capture patterns created/edited in the Oelo app and save them for future use (up to 200 patterns)</li>
+                <li><strong>Pattern Types:</strong> Support for spotlight plans and non-spotlight plans with automatic type detection</li>
+                <li><strong>Simple Commands:</strong> Easy-to-use commands for setting patterns and turning lights on/off</li>
+                <li><strong>Auto-Polling:</strong> Automatic status polling with configurable intervals</li>
+                <li><strong>No Authentication Required:</strong> Simple HTTP API with no credentials needed</li>
+            </ul>
+        </div>
+        
+        <div class="critical-box">
+            <h4>⚠️ CRITICAL: Setup Steps Required Before Use</h4>
+            <p><strong>Before you can use any commands (On, Off, Apply Pattern, etc.), you MUST complete these steps in order:</strong></p>
+            <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                <li><strong>Configure Controller IP Address</strong> - Run the <strong>Scan for Controller</strong> command OR manually enter the Controller IP Address in device preferences, then <strong>save</strong>. Without this, the device cannot interact with the controller.</li>
+                <li><strong>Set a pattern in the Oelo Evolution app</strong> - Create or select a pattern in the Oelo Evolution app and apply it to your zone</li>
+                <li><strong>Run the <strong>Get Pattern</strong> command</strong> - In Hubitat, open your device and run the <strong>Get Pattern</strong> command to capture the pattern</li>
+                <li><strong>Refresh the Hubitat page</strong> - Refresh your browser page to see the captured pattern appear in the preferences</li>
+            </ol>
+            <p style="margin-top: 1rem; margin-bottom: 0;"><strong>Without completing these steps first, commands will not work properly.</strong></p>
+        </div>
+        
+        <div class="toc">
+            <h3>Table of Contents</h3>
+            <ul>
+                <li><a href="#installation">Installation</a></li>
+                <li><a href="#configuration">Configuration</a></li>
+                <li><a href="#finding-ip">Finding Controller IP Address</a></li>
+                <li><a href="#usage">Usage</a></li>
+                <li><a href="#patterns">Patterns</a></li>
+                <li><a href="#automations">Example Automations</a></li>
+                <li><a href="#troubleshooting">Troubleshooting</a></li>
+            </ul>
+        </div>
+        
+        <section id="installation">
+            <h2>Installation</h2>
+            
+            <h3>Method 1: Hubitat Package Manager (HPM) - Recommended</h3>
+            
+            <div class="screenshot">
+                <img src="hubitat package manager.PNG" alt="Hubitat Package Manager">
+                <p class="screenshot-caption">Open Hubitat Package Manager</p>
+            </div>
+            
+            <ol>
+                <li>Ensure <a href="https://github.com/HubitatCommunity/HubitatPublic/tree/master/apps/Package%20Manager">Hubitat Package Manager</a> is installed on your hub</li>
+                <li>Open HPM and select "Install"</li>
+                <li>Search for "Oelo Lights"
+                    <div class="screenshot">
+                        <img src="fast search for Oelo.PNG" alt="Search for Oelo Lights">
+                        <p class="screenshot-caption">Fast search for Oelo in Hubitat Package Manager</p>
+                    </div>
+                </li>
+                <li>Select "Oelo Lights by curtiside"
+                    <div class="screenshot">
+                        <img src="select Oelo Lights by curtiside.PNG" alt="Select Oelo Lights">
+                        <p class="screenshot-caption">Select Oelo Lights by curtiside</p>
+                    </div>
+                </li>
+                <li>Follow the prompts to complete installation</li>
+            </ol>
+            
+            <h3>Method 2: Manual Installation</h3>
+            <ol>
+                <li>Open your Hubitat web interface</li>
+                <li>Navigate to <strong>Drivers Code</strong> in the menu</li>
+                <li>Click <strong>+ New Driver</strong></li>
+                <li>Click <strong>Import</strong> and paste this URL:
+                    <pre><code>https://raw.githubusercontent.com/curtiside/oelo-lights-hubitat/main/drivers/oelo-lights-zone.groovy</code></pre>
+                </li>
+                <li>Click <strong>Import</strong> and then <strong>Save</strong></li>
+            </ol>
+        </section>
+        
+        <section id="configuration">
+            <h2>Configuration</h2>
+            
+            <div class="critical-box">
+                <h4>⚠️ CRITICAL: Controller IP Address Must Be Configured First</h4>
+                <p><strong>Before the device can interact with your Oelo controller, you MUST configure the Controller IP Address:</strong></p>
+                <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li>Run the <strong>Scan for Controller</strong> command to automatically discover the IP, OR</li>
+                    <li>Manually enter the Controller IP Address in device preferences</li>
+                    <li><strong>Save the preferences</strong> - This is required for the device to connect to the controller</li>
+                </ol>
+                <p style="margin-top: 1rem; margin-bottom: 0;"><strong>Without configuring and saving the Controller IP Address, the device cannot communicate with the controller and commands will fail.</strong></p>
+            </div>
+            
+            <h3>Creating a Virtual Device</h3>
+            
+            <ol>
+                <li>Navigate to Hubitat → Devices → Add Virtual Device
+                    <div class="screenshot">
+                        <img src="add virtual device.PNG" alt="Add Virtual Device">
+                        <p class="screenshot-caption">Add Virtual Device in Hubitat</p>
+                    </div>
+                </li>
+                <li>Select "Oelo Lights Zone" driver
+                    <div class="screenshot">
+                        <img src="select Oelo Lights Zone.PNG" alt="Select Oelo Lights Zone">
+                        <p class="screenshot-caption">Select Oelo Lights Zone driver</p>
+                    </div>
+                </li>
+                <li>Name your device
+                    <div class="screenshot">
+                        <img src="Name the virtual device.PNG" alt="Name the Virtual Device">
+                        <p class="screenshot-caption">Name the virtual device</p>
+                    </div>
+                </li>
+            </ol>
+            
+            <h3>Required Settings</h3>
+            
+            <h4>1. Controller IP Address (Required)</h4>
+            <ul>
+                <li>IP address of the Oelo controller on your local network</li>
+                <li>Format: IPv4 address (e.g., <code>192.168.1.100</code>)</li>
+                <li>Automatically set when discovered via <strong>Scan for Controller</strong> command, or can be manually entered</li>
+                <li>Driver validates IP by attempting to connect to <code>/getController</code> endpoint</li>
+            </ul>
+            
+            <h4>2. Zone Number (Required)</h4>
+            <ul>
+                <li>Zone number (1-6) that this driver instance controls</li>
+                <li>Each zone requires a separate virtual device instance</li>
+                <li>Range: 1-6</li>
+            </ul>
+            
+            <h3>Optional Settings</h3>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Setting</th>
+                        <th>Default</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Subnet to Scan</td>
+                        <td>Empty</td>
+                        <td>Subnet prefix for controller discovery (e.g., '192.168.1' or '10.16.1')</td>
+                    </tr>
+                    <tr>
+                        <td>Poll Interval</td>
+                        <td>300 seconds</td>
+                        <td>How often to poll controller status (Range: 10-3600 seconds)</td>
+                    </tr>
+                    <tr>
+                        <td>Enable Auto Polling</td>
+                        <td>Enabled</td>
+                        <td>Automatically poll controller status</td>
+                    </tr>
+                    <tr>
+                        <td>Patterns</td>
+                        <td>None</td>
+                        <td>Capture and manage up to 200 patterns</td>
+                    </tr>
+                    <tr>
+                        <td>Spotlight Plan Lights</td>
+                        <td>Default list</td>
+                        <td>Comma-delimited list of LED indices for spotlight plans</td>
+                    </tr>
+                    <tr>
+                        <td>Maximum LEDs per Zone</td>
+                        <td>500</td>
+                        <td>Maximum number of LEDs in this zone</td>
+                    </tr>
+                    <tr>
+                        <td>Verify Commands</td>
+                        <td>Disabled</td>
+                        <td>Verify commands by checking controller status after sending</td>
+                    </tr>
+                    <tr>
+                        <td>Command Timeout</td>
+                        <td>10 seconds</td>
+                        <td>HTTP request timeout (Range: 5-30 seconds)</td>
+                    </tr>
+                    <tr>
+                        <td>Enable Debug Logging</td>
+                        <td>Disabled</td>
+                        <td>Enable detailed logging for troubleshooting</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="info-box">
+                <strong>Note:</strong> No credentials or authentication are required. The Oelo Lights controller uses an open HTTP API with no authentication.
+            </div>
+            
+            <div class="critical-box">
+                <h4>⚠️ IMPORTANT: Refresh Required After Changes</h4>
+                <p><strong>After making any changes in device preferences (including capturing patterns, renaming patterns, or changing settings), you must refresh your Hubitat browser page for the changes to appear in the preferences tab.</strong></p>
+                <p style="margin-top: 0.5rem; margin-bottom: 0;">Simply reload/refresh the page (F5 or Cmd+R) to see updated preferences.</p>
+            </div>
+            
+            <div class="screenshot">
+                <img src="oelo device preferences.PNG" alt="Oelo Device Preferences">
+                <p class="screenshot-caption">Device preferences configuration screen</p>
+            </div>
+        </section>
+        
+        <section id="finding-ip">
+            <h2>Finding Controller IP Address</h2>
+            
+            <h3>Method 1: Controller Discovery (Recommended)</h3>
+            
+            <p>The driver includes a network scanning feature to discover Oelo controllers:</p>
+            
+            <ol>
+                <li>Open device preferences</li>
+                <li>Click the <strong>Scan for Controller</strong> button
+                    <div class="screenshot">
+                        <img src="scan for controller.PNG" alt="Scan for Controller">
+                        <p class="screenshot-caption">Scan for Controller command</p>
+                    </div>
+                </li>
+                <li>The driver will scan your network subnet</li>
+                <li>When found, the controller IP address is <strong>automatically set</strong> in the preferences</li>
+                <li><strong>Save the preferences</strong> - This is required for the device to connect to the controller</li>
+                <li>The discovered IP address will be logged in the device logs and shown in the Controller IP Address preference description</li>
+            </ol>
+            
+            <div class="warning-box">
+                <strong>Important:</strong> After running <strong>Scan for Controller</strong> or manually entering the IP address, you must <strong>save the preferences</strong> for the device to connect to the controller. Without saving, the device cannot communicate with the controller.
+            </div>
+            
+            <div class="info-box">
+                <strong>How Network Scanning Works:</strong>
+                <ul>
+                    <li>Scans IP addresses in the configured subnet (e.g., 192.168.1.1-254)</li>
+                    <li>Tests each IP with HTTP GET to <code>/getController</code></li>
+                    <li>Identifies Oelo controllers by checking for valid JSON response</li>
+                    <li>When controller is found, IP address is automatically set in preferences</li>
+                </ul>
+            </div>
+            
+            <h3>Method 2: Manual Methods</h3>
+            
+            <p>If automatic discovery doesn't work, you can manually find the IP address:</p>
+            
+            <h4>Oelo Evolution App:</h4>
+            <ol>
+                <li>Open the Oelo Evolution app on your smartphone/tablet</li>
+                <li>Navigate to Settings or Device Information</li>
+                <li>Find the IP address listed there</li>
+            </ol>
+            
+            <h4>Router Admin Interface:</h4>
+            <ol>
+                <li>Log into your router's web interface</li>
+                <li>Navigate to "Connected Devices" or "DHCP Client List"</li>
+                <li>Look for device named "Oelo" or similar</li>
+                <li>Note the IP address assigned</li>
+            </ol>
+            
+            <h4>Network Scanner Tools:</h4>
+            <p>Use network scanning software to scan your local network:</p>
+            <ul>
+                <li><strong>Fing</strong> (mobile app)</li>
+                <li><strong>Angry IP Scanner</strong> (desktop)</li>
+                <li><strong>nmap</strong> (command line): <code>nmap -sn 192.168.1.0/24</code></li>
+                <li><strong>Advanced IP Scanner</strong> (Windows)</li>
+            </ul>
+            
+            <p>Look for devices responding on port 80 (HTTP) that return JSON from <code>/getController</code></p>
+        </section>
+        
+        <section id="usage">
+            <h2>Usage</h2>
+            
+            <div class="critical-box">
+                <h4>⚠️ CRITICAL: Complete Setup Steps First</h4>
+                <p><strong>You must complete these steps in order before using commands:</strong></p>
+                <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li><strong>Configure Controller IP Address</strong> - Run <strong>Scan for Controller</strong> OR manually enter IP in preferences, then <strong>save</strong>. Without this, the device cannot communicate with the controller.</li>
+                    <li>Set a pattern in the <strong>Oelo Evolution app</strong> and apply it to your zone</li>
+                    <li>Run the <strong>Get Pattern</strong> command in Hubitat to capture it</li>
+                    <li><strong>Refresh your browser page</strong> to see the pattern in preferences</li>
+                </ol>
+                <p style="margin-top: 1rem; margin-bottom: 0;"><strong>Only after completing these steps can you use On, Off, Apply Pattern, or other commands.</strong></p>
+            </div>
+            
+            <h3>Available Commands</h3>
+            
+            <div class="screenshot">
+                <img src="Oelo device commands.PNG" alt="Oelo Device Commands">
+                <p class="screenshot-caption">Available device commands</p>
+            </div>
+            
+            <p>The driver provides the following commands:</p>
+            
+            <ul>
+                <li><strong>On:</strong> Turn on lights using the last used pattern or selected pattern</li>
+                <li><strong>Off:</strong> Turn off the lights</li>
+                <li><strong>Apply Pattern:</strong> Apply pattern chosen from Pattern Selection dropdown</li>
+                <li><strong>On and Apply Pattern:</strong> Turn on and apply pattern in one action (for rule engines - pattern must be captured first via <strong>Get Pattern</strong>, pattern name must match exactly)</li>
+                <li><strong>Get Pattern:</strong> Capture the current pattern from the controller and save it</li>
+                <li><strong>Refresh:</strong> Get current state from controller</li>
+                <li><strong>Scan for Controller:</strong> Scan network to discover Oelo controller IP address</li>
+                <li><strong>Stop Scan:</strong> Stop the controller discovery scan</li>
+            </ul>
+            
+            <h3>Using Pattern Selection</h3>
+            
+            <ol>
+                <li><strong>Select Pattern in Preferences:</strong>
+                    <ul>
+                        <li>Go to device preferences</li>
+                        <li><strong>Pattern Selection:</strong> Choose from your configured patterns</li>
+                        <li>Save preferences</li>
+                    </ul>
+                </li>
+                <li><strong>Execute Command:</strong>
+                    <ul>
+                        <li>Use <strong>Apply Pattern</strong> command to apply selected pattern</li>
+                        <li>Commands appear in device tile or can be called from automations</li>
+                    </ul>
+                </li>
+            </ol>
+        </section>
+        
+        <section id="patterns">
+            <h2>Patterns</h2>
+            
+            <div class="critical-box">
+                <h4>⚠️ CRITICAL: Pattern Workflow</h4>
+                <p><strong>Complete these steps in order before using any commands:</strong></p>
+                <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li><strong>Configure Controller IP Address First:</strong> Run <strong>Scan for Controller</strong> OR manually enter Controller IP Address in preferences, then <strong>save</strong>. This must be done before capturing patterns.</li>
+                    <li><strong>Set Pattern in Oelo Evolution App:</strong> Create or select a pattern in the Oelo Evolution app and apply it to your zone</li>
+                    <li><strong>Capture in Hubitat:</strong> Use the <strong>Get Pattern</strong> command to capture the current pattern from the controller</li>
+                    <li><strong>Refresh Browser Page:</strong> Refresh your Hubitat browser page to see the captured pattern appear in preferences</li>
+                    <li><strong>Now You Can Use Commands:</strong> After refreshing, you can select the pattern and use commands like <strong>Apply Pattern</strong>, <strong>On</strong>, etc.</li>
+                </ol>
+            </div>
+            
+            <h3>Capturing Patterns</h3>
+            
+            <p>Capture and save patterns created/edited in the Oelo app:</p>
+            
+            <ol>
+                <li><strong>Edit Pattern in Oelo App:</strong> Use the Oelo Evolution app to create or modify a pattern on your controller</li>
+                <li><strong>Set Pattern on Controller:</strong> Apply the pattern to your zone using the Oelo app</li>
+                <li><strong>Capture in Hubitat:</strong> Use the <strong>Get Pattern</strong> command to capture the current pattern from the controller</li>
+                <li><strong>Refresh Browser Page:</strong> <strong>Refresh your Hubitat browser page</strong> to see the pattern appear in preferences</li>
+                <li><strong>Pattern Saved:</strong> The pattern is automatically saved with a stable ID and an initial display name</li>
+                <li><strong>Use Saved Pattern:</strong> Select the captured pattern from <strong>Pattern Selection</strong> dropdown and use <strong>Apply Pattern</strong> command</li>
+            </ol>
+            
+            <h3>Pattern Types</h3>
+            
+            <p>The driver supports two types of patterns:</p>
+            
+            <ul>
+                <li><strong>Spotlight Plans:</strong> Patterns with specific LEDs turned on and all others off
+                    <ul>
+                        <li>Automatically detected when <code>patternType=spotlight</code></li>
+                        <li>Can be customized via <strong>Spotlight Plan Lights</strong> setting to control which LEDs are active</li>
+                        <li>Uses colors from the original captured pattern for the specified LEDs</li>
+                    </ul>
+                </li>
+                <li><strong>Non-Spotlight Plans:</strong> All other pattern types (march, stationary, river, chase, twinkle, split, fade, sprinkle, takeover, streak, bolt, custom, etc.)
+                    <ul>
+                        <li>Standard pattern types with various effects</li>
+                        <li>Existing behavior unchanged</li>
+                    </ul>
+                </li>
+            </ul>
+            
+            <h3>Pattern Management</h3>
+            
+            <ul>
+                <li>Up to <strong>200 patterns</strong> can be stored per device</li>
+                <li><strong>Duplicate Prevention:</strong> Patterns with identical parameters are automatically treated as the same pattern</li>
+                <li><strong>Rename Patterns:</strong> Use <strong>Select Pattern to Rename</strong> dropdown and <strong>New Pattern Name</strong> text field in device preferences, then save. <strong>Remember to refresh your browser page after saving to see the renamed pattern.</strong>
+                    <div class="screenshot">
+                        <img src="rename command (after get pattern).PNG" alt="Rename Pattern">
+                        <p class="screenshot-caption">Renaming a captured pattern</p>
+                    </div>
+                </li>
+                <li><strong>Delete Patterns:</strong> Use the <strong>Delete Pattern</strong> dropdown in device preferences, then save. <strong>Refresh your browser page to see the updated pattern list.</strong></li>
+                <li>Patterns appear in <strong>Pattern Selection</strong> dropdown for easy selection</li>
+                <li>Pattern ID is displayed in parentheses next to pattern name in dropdowns</li>
+            </ul>
+            
+            <div class="warning-box">
+                <strong>Remember:</strong> After capturing, renaming, or deleting patterns, always refresh your Hubitat browser page to see the changes in the preferences tab.
+            </div>
+            
+            <h3>Spotlight Plan Customization</h3>
+            
+            <div class="warning-box">
+                <strong>Note:</strong> The Oelo controller only returns 40 lights from the getController command. As a result, spotlight plans are not fully represented in the response. To counter this limitation, the Spotlight Plan Lights can be set with a list of the lights that should be turned on.
+            </div>
+            
+            <p>For spotlight plans, you can customize which LEDs are active:</p>
+            
+            <ol>
+                <li><strong>Capture Spotlight Plan:</strong> Use <strong>Get Pattern</strong> to capture a spotlight pattern from the controller</li>
+                <li><strong>Configure Spotlight Plan Lights:</strong> In device preferences, set <strong>Spotlight Plan Lights</strong> to a comma-delimited list of LED indices (1-based, e.g., "1,2,3,4,8,9,10,11")
+                    <ul>
+                        <li>The setting is automatically normalized (duplicates removed, sorted, invalid indices skipped)</li>
+                        <li>Current normalized value is displayed in the preference description</li>
+                        <li>Default value includes common spotlight LED positions</li>
+                    </ul>
+                </li>
+                <li><strong>Automatic Modification:</strong> When you use a spotlight plan, only the LEDs specified in <strong>Spotlight Plan Lights</strong> will be turned on, using the colors from the original captured pattern</li>
+                <li><strong>Setting Changes:</strong> If you change <strong>Spotlight Plan Lights</strong>, all saved spotlight plans are automatically updated to use the new LED list</li>
+            </ol>
+        </section>
+        
+        <section id="automations">
+            <h2>Example Automations</h2>
+            
+            <h3>Example 1: Turn on pattern at sunset</h3>
+            <ol>
+                <li>Create/edit pattern in Oelo Evolution app and apply it to the zone</li>
+                <li>In Hubitat, use <strong>Get Pattern</strong> command to capture the pattern</li>
+                <li>Create Rule Machine rule</li>
+                <li>Trigger: Sunset</li>
+                <li>Action: Call <strong>Apply Pattern</strong> command (after selecting the captured pattern in preferences)</li>
+            </ol>
+            
+            <h3>Example 2: Turn off lights at midnight</h3>
+            <ol>
+                <li>Create Rule Machine rule</li>
+                <li>Trigger: Time (12:00 AM)</li>
+                <li>Action: Call <strong>Off</strong> command</li>
+            </ol>
+            
+            <h3>Example 3: Capture and reuse a favorite pattern</h3>
+            <ol>
+                <li>Set up your favorite pattern in the Oelo app</li>
+                <li>Use <strong>Get Pattern</strong> command in Hubitat to save it</li>
+                <li>The pattern is now available in the Pattern Selection dropdown for use in automations</li>
+            </ol>
+            
+            <h3>Example 4: Turn on and apply pattern in Rule Machine</h3>
+            <div class="warning-box">
+                <strong>Important:</strong> Pattern must be captured first using <strong>Get Pattern</strong> command. Pattern name must match exactly (case-sensitive) the saved pattern name.
+            </div>
+            <ol>
+                <li>In Rule Machine, add action: "Run Custom Action"</li>
+                <li>Select your Oelo device</li>
+                <li>Choose <strong>On and Apply Pattern</strong> command</li>
+                <li>Enter pattern name in the parameter field (e.g., "Christmas March") - must match saved pattern name exactly</li>
+                <li>The device will turn on and apply the specified pattern</li>
+            </ol>
+        </section>
+        
+        <section id="troubleshooting">
+            <h2>Troubleshooting</h2>
+            
+            <h3>"Controller IP address not configured"</h3>
+            <div class="critical-box">
+                <h4>⚠️ CRITICAL: This Must Be Done First</h4>
+                <p><strong>Solution:</strong> The Controller IP Address must be configured before the device can interact with the controller:</p>
+                <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li>Run the <strong>Scan for Controller</strong> command to automatically discover the IP, OR</li>
+                    <li>Manually enter the Controller IP Address in device preferences → Controller Settings</li>
+                    <li><strong>Save the preferences</strong> - This is required for the device to connect</li>
+                </ol>
+                <p style="margin-top: 1rem; margin-bottom: 0;"><strong>Without configuring and saving the Controller IP Address, no commands will work.</strong></p>
+            </div>
+            
+            <h3>"Invalid zone number"</h3>
+            <p><strong>Solution:</strong> Zone number must be 1-6</p>
+            
+            <h3>"Cannot connect to controller"</h3>
+            <p><strong>Possible causes:</strong></p>
+            <ul>
+                <li>Incorrect IP address</li>
+                <li>Controller is offline</li>
+                <li>Network connectivity issues</li>
+                <li>Firewall blocking connection</li>
+                <li>Controller on different network/VLAN</li>
+            </ul>
+            <p><strong>Solutions:</strong></p>
+            <ul>
+                <li>Verify IP address is correct</li>
+                <li>Ping controller: <code>ping Controller_IP_Address</code></li>
+                <li>Check controller is powered on</li>
+                <li>Verify Hubitat and controller are on same network</li>
+                <li>Check firewall rules</li>
+            </ul>
+            
+            <h3>"Device responded but doesn't appear to be an Oelo controller"</h3>
+            <p><strong>Possible causes:</strong></p>
+            <ul>
+                <li>IP address points to different device</li>
+                <li>Controller firmware version incompatible</li>
+            </ul>
+            <p><strong>Solutions:</strong></p>
+            <ul>
+                <li>Verify correct IP address</li>
+                <li>Test manually: <code>curl http://{IP}/getController</code></li>
+                <li>Should return JSON array</li>
+            </ul>
+            
+            <h3>Patterns not appearing in dropdown</h3>
+            <ul>
+                <li>Ensure patterns have been captured using <strong>Get Pattern</strong> command</li>
+                <li><strong>Refresh your browser page</strong> - Changes only appear after refreshing the Hubitat page</li>
+                <li>Check device logs for any errors</li>
+            </ul>
+            
+            <h3>Commands not working</h3>
+            <div class="critical-box">
+                <h4>⚠️ Most Common Issues</h4>
+                <p><strong>If commands like <strong>On</strong>, <strong>Off</strong>, or <strong>Apply Pattern</strong> are not working, check these in order:</strong></p>
+                <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li><strong>Controller IP Address not configured:</strong> Run <strong>Scan for Controller</strong> OR manually enter Controller IP Address in preferences, then <strong>save</strong>. Without this, the device cannot communicate with the controller.</li>
+                    <li><strong>Pattern not captured:</strong> Make sure you've set a pattern in the <strong>Oelo Evolution app</strong> first, then run the <strong>Get Pattern</strong> command to capture it</li>
+                    <li><strong>Refresh browser page:</strong> <strong>Refresh your browser page</strong> to see the pattern in preferences</li>
+                    <li><strong>Pattern not selected:</strong> Select the pattern in the Pattern Selection dropdown</li>
+                    <li>Now try your commands again</li>
+                </ol>
+            </div>
+            <ul>
+                <li>Verify pattern is selected in Pattern Selection dropdown</li>
+                <li>Check device logs for error messages</li>
+                <li>Enable Debug Logging for detailed information</li>
+                <li>Verify controller IP and zone number are correct</li>
+            </ul>
+            
+            <h3>Changes not showing in preferences</h3>
+            <div class="warning-box">
+                <strong>Solution:</strong> After capturing patterns, renaming patterns, deleting patterns, or changing any settings, you must <strong>refresh your browser page</strong> (F5 or Cmd+R) for the changes to appear in the preferences tab. The device works immediately, but the UI needs to be refreshed to display updates.
+            </div>
+            
+            <h3>Device shows offline</h3>
+            <ul>
+                <li>Check controller IP address is correct</li>
+                <li>Verify network connectivity</li>
+                <li>Try <strong>Refresh</strong> command</li>
+                <li>Check Hubitat logs for connection errors</li>
+            </ul>
+        </section>
+        
+        <section id="requirements">
+            <h2>Requirements</h2>
+            <ul>
+                <li>Hubitat Elevation hub (firmware 2.1.9 or later)</li>
+                <li>Oelo Lights controller on local network</li>
+                <li>Controller IP address (can be manually entered or discovered via <strong>Scan for Controller</strong>)</li>
+            </ul>
+        </section>
+        
+        <footer>
+            <p>For issues, questions, or contributions:</p>
+            <p>
+                <a href="https://github.com/curtiside/oelo-lights-hubitat/issues">GitHub Issues</a> | 
+                <a href="https://community.hubitat.com">Hubitat Community Forum</a>
+            </p>
+            <p style="margin-top: 1rem; font-size: 0.9rem;">
+                MIT License | Based on <a href="https://github.com/Cinegration/Oelo_Lights_HA">Oelo Lights Home Assistant Integration</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
